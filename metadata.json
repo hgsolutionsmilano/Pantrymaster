@@ -1,0 +1,6 @@
+{
+  "name": "PantryMaster",
+  "description": "Gestione completa offline di dispensa, frigorifero, freezer, lotti con metodo FEFO, scanner barcode, scadenze, lista della spesa, ricette e statistiche.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

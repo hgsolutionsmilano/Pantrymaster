@@ -1,0 +1,79 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_and_test:
+    name: Test e Compilazione APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout codice
+        uses: actions/checkout@v4
+
+      - name: Configura JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configura Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Calcola versione progressiva CI
+        id: version
+        shell: bash
+        run: |
+          source version.properties
+          BASE_CODE=${VERSION_CODE:-1}
+          PROGRESSIVE_CODE=$((BASE_CODE + GITHUB_RUN_NUMBER))
+          PROGRESSIVE_NAME="${VERSION_MAJOR:-1}.${VERSION_MINOR:-0}.${VERSION_PATCH:-0}-ci.${GITHUB_RUN_NUMBER}"
+          echo "code=$PROGRESSIVE_CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$PROGRESSIVE_NAME" >> "$GITHUB_OUTPUT"
+          echo "Versione CI: $PROGRESSIVE_NAME (versionCode=$PROGRESSIVE_CODE)"
+
+      - name: Esegui test unitari e Robolectric
+        run: gradle :app:testDebugUnitTest --no-daemon
+
+      - name: Compila APK Debug con versione progressiva
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          gradle :app:assembleDebug \
+            -PversionCode=${{ steps.version.outputs.code }} \
+            -PversionName=${{ steps.version.outputs.name }} \
+            -PgithubRepo=${{ github.repository }} \
+            --no-daemon
+
+      - name: Prepara artefatto APK
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            "artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}-debug.apk"
+
+      - name: Carica report test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.run_number }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
+
+      - name: Carica APK compilato
+        uses: actions/upload-artifact@v4
+        with:
+          name: PantryMaster-v${{ steps.version.outputs.name }}-apk
+          path: artifacts/*.apk
+          retention-days: 30
