@@ -21,8 +21,14 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 class UserPreferencesDataStore @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    companion object {
+        const val DEFAULT_HOME_TITLE = "PantryMaster"
+        const val MAX_HOME_TITLE_LENGTH = 36
+    }
+
     private object Keys {
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val HOME_TITLE = stringPreferencesKey("home_title")
         val PANTRY_GRID_VIEW = booleanPreferencesKey("pantry_grid_view")
         val LAST_NOTIFICATION_CHECK = longPreferencesKey("last_notification_check")
         val SELECTED_SHOPPING_LIST_ID = stringPreferencesKey("selected_shopping_list_id")
@@ -36,6 +42,10 @@ class UserPreferencesDataStore @Inject constructor(
     val themePreference: Flow<ThemePreference> = context.dataStore.data.map { prefs ->
         val raw = prefs[Keys.THEME_MODE] ?: ThemePreference.SYSTEM.name
         runCatching { ThemePreference.valueOf(raw) }.getOrDefault(ThemePreference.SYSTEM)
+    }
+
+    val homeTitle: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.HOME_TITLE]?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_HOME_TITLE
     }
 
     val isPantryGridView: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -68,6 +78,14 @@ class UserPreferencesDataStore @Inject constructor(
 
     suspend fun setThemePreference(theme: ThemePreference) {
         context.dataStore.edit { it[Keys.THEME_MODE] = theme.name }
+    }
+
+    suspend fun setHomeTitle(title: String) {
+        val sanitized = title.trim().take(MAX_HOME_TITLE_LENGTH)
+        context.dataStore.edit { prefs ->
+            if (sanitized.isBlank()) prefs.remove(Keys.HOME_TITLE)
+            else prefs[Keys.HOME_TITLE] = sanitized
+        }
     }
 
     suspend fun setPantryGridView(isGrid: Boolean) {

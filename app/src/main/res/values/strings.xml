@@ -10,4 +10,9 @@
     <string name="notification_channel_expiry_desc">Notifiche per prodotti prossimi alla scadenza o al termine minimo di conservazione</string>
     <string name="notification_channel_updates_name">Aggiornamenti app</string>
     <string name="notification_channel_updates_desc">Notifiche quando è disponibile una nuova versione su GitHub Releases</string>
+    <string name="settings_home_title_label">Nome schermata Home</string>
+    <string name="settings_home_title_placeholder">PantryMaster</string>
+    <string name="settings_home_title_hint">Personalizza l\'intestazione principale nella Home (es. Casa Rossi).</string>
+    <string name="settings_home_title_save">Salva</string>
+    <string name="settings_home_title_reset">Ripristina predefinito</string>
 </resources>

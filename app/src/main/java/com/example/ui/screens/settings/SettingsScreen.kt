@@ -24,7 +24,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.OpenInBrowser
@@ -50,6 +52,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,12 +64,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
+import com.example.R
+import com.example.data.preferences.UserPreferencesDataStore
 import com.example.data.repository.AppUpdateStatus
 import com.example.domain.model.ThemePreference
 import com.example.ui.components.PantryFlowRow
@@ -86,6 +92,7 @@ fun SettingsScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var repoDraft by remember(state.effectiveGithubRepo) { mutableStateOf(state.effectiveGithubRepo) }
+    var homeTitleDraft by remember(state.homeTitle) { mutableStateOf(state.homeTitle) }
 
     LaunchedEffect(message) {
         message?.let {
@@ -146,7 +153,7 @@ fun SettingsScreen(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
-            // Theme Section
+            // Theme & Home Title Section
             Card(
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -162,6 +169,60 @@ fun SettingsScreen(
                                 onClick = { viewModel.setTheme(pref) },
                                 label = { Text(pref.labelIt) }
                             )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = homeTitleDraft,
+                            onValueChange = { updated ->
+                                if (updated.length <= UserPreferencesDataStore.MAX_HOME_TITLE_LENGTH) {
+                                    homeTitleDraft = updated
+                                }
+                            },
+                            label = { Text(stringResource(R.string.settings_home_title_label)) },
+                            placeholder = { Text(stringResource(R.string.settings_home_title_placeholder)) },
+                            leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
+                            trailingIcon = {
+                                if (homeTitleDraft.isNotEmpty() && homeTitleDraft != UserPreferencesDataStore.DEFAULT_HOME_TITLE) {
+                                    IconButton(
+                                        onClick = { homeTitleDraft = UserPreferencesDataStore.DEFAULT_HOME_TITLE },
+                                        modifier = Modifier.testTag("clear_home_title_button")
+                                    ) {
+                                        Icon(Icons.Default.Clear, contentDescription = "Ripristina nel campo")
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("home_title_input")
+                        )
+                        OutlinedButton(
+                            onClick = { viewModel.saveHomeTitle(homeTitleDraft) },
+                            modifier = Modifier.testTag("save_home_title_button")
+                        ) {
+                            Text(stringResource(R.string.settings_home_title_save))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.settings_home_title_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (state.homeTitle != UserPreferencesDataStore.DEFAULT_HOME_TITLE) {
+                        TextButton(
+                            onClick = viewModel::resetHomeTitle,
+                            modifier = Modifier.testTag("reset_home_title_button")
+                        ) {
+                            Text(stringResource(R.string.settings_home_title_reset))
                         }
                     }
                 }

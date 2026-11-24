@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.entity.ShoppingItemEntity
 import com.example.data.local.relation.BatchWithProduct
 import com.example.data.local.relation.ProductWithDetails
+import com.example.data.preferences.UserPreferencesDataStore
 import com.example.data.repository.EvaluatedRecipe
 import com.example.data.repository.LowStockSuggestion
 import com.example.data.repository.PantryRepository
@@ -23,6 +24,7 @@ import javax.inject.Inject
 
 data class HomeDashboardUiState(
     val isLoading: Boolean = true,
+    val homeTitle: String = UserPreferencesDataStore.DEFAULT_HOME_TITLE,
     val totalProductsInStock: Int = 0,
     val totalRegisteredProducts: Int = 0,
     val expiringSoonBatches: List<BatchWithProduct> = emptyList(),
@@ -39,10 +41,11 @@ data class HomeDashboardUiState(
 class HomeViewModel @Inject constructor(
     private val pantryRepository: PantryRepository,
     private val shoppingRepository: ShoppingRepository,
-    private val recipeRepository: RecipeRepository
+    private val recipeRepository: RecipeRepository,
+    userPreferencesDataStore: UserPreferencesDataStore
 ) : ViewModel() {
 
-    val uiState: StateFlow<HomeDashboardUiState> = combine(
+    private val dashboardCoreFlow = combine(
         pantryRepository.observeAllProducts(),
         pantryRepository.observeActiveBatches(),
         shoppingRepository.observeListsWithItems(),
@@ -96,6 +99,13 @@ class HomeViewModel @Inject constructor(
             pendingShoppingCount = pendingItems.size,
             suggestedRecipes = consumptionRecipes
         )
+    }
+
+    val uiState: StateFlow<HomeDashboardUiState> = combine(
+        dashboardCoreFlow,
+        userPreferencesDataStore.homeTitle
+    ) { core, homeTitle ->
+        core.copy(homeTitle = homeTitle)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),

@@ -8,6 +8,7 @@ import com.example.data.remote.GitHubReleaseDto
 import com.example.data.repository.AppUpdateRepository
 import com.example.data.repository.AppUpdateStatus
 import com.example.domain.usecase.AppVersionComparator
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -105,5 +106,19 @@ class AppUpdateModuleTest {
 
         val status = repo.checkForUpdates(force = true)
         assertTrue(status is AppUpdateStatus.Error)
+    }
+
+    @Test
+    fun homeTitle_defaultsUpdatesAndResetsToPantryMaster() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val prefs = UserPreferencesDataStore(context)
+
+        assertEquals(UserPreferencesDataStore.DEFAULT_HOME_TITLE, prefs.homeTitle.first())
+
+        prefs.setHomeTitle("  Casa Rossi  ")
+        assertEquals("Casa Rossi", prefs.homeTitle.first())
+
+        prefs.setHomeTitle("   ")
+        assertEquals(UserPreferencesDataStore.DEFAULT_HOME_TITLE, prefs.homeTitle.first())
     }
 }

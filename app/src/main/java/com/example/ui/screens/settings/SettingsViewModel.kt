@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.SettingsEntity
+import com.example.data.preferences.UserPreferencesDataStore
 import com.example.data.repository.AppUpdateRepository
 import com.example.data.repository.AppUpdateStatus
 import com.example.data.repository.BackupOperationResult
@@ -27,6 +28,7 @@ import javax.inject.Inject
 data class SettingsUiState(
     val settings: SettingsEntity = SettingsEntity(id = 1),
     val categories: List<CategoryEntity> = emptyList(),
+    val homeTitle: String = UserPreferencesDataStore.DEFAULT_HOME_TITLE,
     val isBusy: Boolean = false,
     val autoUpdateEnabled: Boolean = true,
     val effectiveGithubRepo: String = "",
@@ -39,6 +41,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val backupRepository: BackupRepository,
     private val appUpdateRepository: AppUpdateRepository,
+    private val userPreferencesDataStore: UserPreferencesDataStore,
     private val workScheduler: WorkScheduler
 ) : ViewModel() {
 
@@ -50,6 +53,7 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = combine(
         settingsRepository.observeSettings(),
         settingsRepository.observeCategories(),
+        userPreferencesDataStore.homeTitle,
         _isBusy,
         combine(
             appUpdateRepository.autoUpdateEnabled,
@@ -59,10 +63,11 @@ class SettingsViewModel @Inject constructor(
         ) { autoUpdate, repo, lastCheck, status ->
             UpdateSettingsSlice(autoUpdate, repo, lastCheck, status)
         }
-    ) { settings, categories, busy, updateSlice ->
+    ) { settings, categories, homeTitle, busy, updateSlice ->
         SettingsUiState(
             settings = settings,
             categories = categories,
+            homeTitle = homeTitle,
             isBusy = busy,
             autoUpdateEnabled = updateSlice.autoUpdate,
             effectiveGithubRepo = updateSlice.repo,
@@ -84,6 +89,22 @@ class SettingsViewModel @Inject constructor(
 
     fun setTheme(theme: ThemePreference) {
         viewModelScope.launch { settingsRepository.updateTheme(theme) }
+    }
+
+    fun saveHomeTitle(rawInput: String) {
+        val trimmed = rawInput.trim().take(UserPreferencesDataStore.MAX_HOME_TITLE_LENGTH)
+        viewModelScope.launch {
+            userPreferencesDataStore.setHomeTitle(trimmed)
+            _message.value = if (trimmed.isBlank()) {
+                "Nome Home ripristinato a ${UserPreferencesDataStore.DEFAULT_HOME_TITLE}."
+            } else {
+                "Nome Home aggiornato."
+            }
+        }
+    }
+
+    fun resetHomeTitle() {
+        saveHomeTitle("")
     }
 
     fun updateNotificationSettings(
