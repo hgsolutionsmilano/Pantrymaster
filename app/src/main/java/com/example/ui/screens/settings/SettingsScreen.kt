@@ -8,8 +8,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -71,11 +69,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
 import com.example.data.repository.AppUpdateStatus
 import com.example.domain.model.ThemePreference
+import com.example.ui.components.PantryFlowRow
 import com.example.ui.components.UnitDropdownField
 import java.text.DateFormat
 import java.util.Date
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
@@ -156,7 +155,7 @@ fun SettingsScreen(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Aspetto e Tema", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(10.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PantryFlowRow(horizontalSpacing = 8.dp, verticalSpacing = 8.dp) {
                         ThemePreference.entries.forEach { pref ->
                             FilterChip(
                                 selected = s.themeMode == pref,
@@ -213,9 +212,9 @@ fun SettingsScreen(
 
                     if (s.notificationsEnabled) {
                         Text("Soglie di avviso", style = MaterialTheme.typography.labelLarge)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        PantryFlowRow(
+                            horizontalSpacing = 8.dp,
+                            verticalSpacing = 6.dp
                         ) {
                             FilterChip(
                                 selected = s.notify7Days,

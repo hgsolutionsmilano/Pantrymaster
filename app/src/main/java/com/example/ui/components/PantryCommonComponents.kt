@@ -5,8 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,11 +57,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.max
 import coil.compose.AsyncImage
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.StorageLocationEntity
@@ -369,7 +370,74 @@ fun CategoryDropdownField(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PantryFlowRow(
+    modifier: Modifier = Modifier,
+    horizontalSpacing: Dp = 8.dp,
+    verticalSpacing: Dp = 8.dp,
+    content: @Composable () -> Unit
+) {
+    Layout(
+        content = content,
+        modifier = modifier
+    ) { measurables, constraints ->
+        val hSpacingPx = horizontalSpacing.roundToPx()
+        val vSpacingPx = verticalSpacing.roundToPx()
+        val maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
+        val childConstraints = constraints.copy(minWidth = 0, minHeight = 0)
+
+        val rows = mutableListOf<List<Placeable>>()
+        val rowHeights = mutableListOf<Int>()
+        var currentRow = mutableListOf<Placeable>()
+        var currentRowWidth = 0
+        var currentRowHeight = 0
+
+        for (measurable in measurables) {
+            val placeable = measurable.measure(childConstraints)
+            val neededWidth = if (currentRow.isEmpty()) placeable.width else currentRowWidth + hSpacingPx + placeable.width
+            if (currentRow.isNotEmpty() && neededWidth > maxWidth) {
+                rows.add(currentRow)
+                rowHeights.add(currentRowHeight)
+                currentRow = mutableListOf(placeable)
+                currentRowWidth = placeable.width
+                currentRowHeight = placeable.height
+            } else {
+                currentRow.add(placeable)
+                currentRowWidth = neededWidth
+                currentRowHeight = max(currentRowHeight, placeable.height)
+            }
+        }
+        if (currentRow.isNotEmpty()) {
+            rows.add(currentRow)
+            rowHeights.add(currentRowHeight)
+        }
+
+        val totalWidth = if (constraints.hasBoundedWidth) {
+            constraints.maxWidth
+        } else {
+            rows.maxOfOrNull { row ->
+                row.sumOf { it.width } + (row.size - 1).coerceAtLeast(0) * hSpacingPx
+            } ?: 0
+        }
+        val totalHeight = rowHeights.sum() + (rows.size - 1).coerceAtLeast(0) * vSpacingPx
+
+        layout(
+            width = totalWidth.coerceIn(constraints.minWidth, constraints.maxWidth),
+            height = totalHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
+        ) {
+            var y = 0
+            rows.forEachIndexed { index, row ->
+                var x = 0
+                row.forEach { placeable ->
+                    placeable.placeRelative(x = x, y = y)
+                    x += placeable.width + hSpacingPx
+                }
+                y += rowHeights[index] + vSpacingPx
+            }
+        }
+    }
+}
+
 @Composable
 fun LocationSelectorRow(
     locations: List<StorageLocationEntity>,
@@ -377,9 +445,9 @@ fun LocationSelectorRow(
     onLocationSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+    PantryFlowRow(
+        horizontalSpacing = 8.dp,
+        verticalSpacing = 6.dp,
         modifier = modifier.fillMaxWidth()
     ) {
         locations.forEach { loc ->
