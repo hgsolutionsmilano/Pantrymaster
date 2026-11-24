@@ -24,10 +24,10 @@ GITHUB_REPO=
 
 ### Workflow configurati
 
-1. **Android CI (`.github/workflows/android-ci.yml`)**
+1. **Android CI & Release (`.github/workflows/android-ci.yml`)**
    - Eseguito su push (`main`, `master`, `develop`), Pull Request e avvio manuale.
-   - Calcola automaticamente una versione progressiva per ogni build (`versionCode = BASE_CODE + github.run_number`).
-   - Esegue i test unitari/Robolectric (`gradle :app:testDebugUnitTest`), compila l'APK e pubblica artefatti e report.
+   - Calcola automaticamente una versione semantica progressiva (`1.0.<patch+run_number>`, `versionCode = BASE_CODE + github.run_number`).
+   - Esegue i test unitari/Robolectric (`gradle :app:testDebugUnitTest`), compila l'APK e su `main`/`master` (o avvio manuale) pubblica automaticamente una **GitHub Release** con il file `.apk` allegato, pronto per il modulo di auto-aggiornamento.
 
 2. **Release Progressiva (`.github/workflows/release.yml`)**
    - Eseguibile manualmente da **Actions → Release Progressiva** scegliendo l'incremento (`patch`, `minor`, `major`), oppure tramite push di un tag `vX.Y.Z`.

@@ -59,6 +59,7 @@ jobs:
           CODE=${VERSION_CODE:-1}
           REPO=${GITHUB_REPO:-}
 
+          git fetch --tags --quiet || true
           case "${{ inputs.bump_type }}" in
             major)
               MAJOR=$((MAJOR + 1))
@@ -73,7 +74,10 @@ jobs:
               PATCH=$((PATCH + 1))
               ;;
           esac
-          CODE=$((CODE + 1))
+          while git rev-parse "v${MAJOR}.${MINOR}.${PATCH}" >/dev/null 2>&1; do
+            PATCH=$((PATCH + 1))
+          done
+          CODE=$((CODE >= GITHUB_RUN_NUMBER ? CODE + 1 : GITHUB_RUN_NUMBER))
           NEW_NAME="${MAJOR}.${MINOR}.${PATCH}"
           TAG_NAME="v${NEW_NAME}"
 

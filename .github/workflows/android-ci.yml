@@ -1,4 +1,4 @@
-name: Android CI
+name: Android CI & Release
 
 on:
   push:
@@ -7,14 +7,18 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: android-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build_and_test:
-    name: Test e Compilazione APK
+    name: Test, Compilazione e Release APK
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'chore(release):')"
 
     steps:
       - name: Checkout codice
@@ -36,12 +40,17 @@ jobs:
         shell: bash
         run: |
           source version.properties
+          MAJOR=${VERSION_MAJOR:-1}
+          MINOR=${VERSION_MINOR:-0}
+          BASE_PATCH=${VERSION_PATCH:-0}
           BASE_CODE=${VERSION_CODE:-1}
           PROGRESSIVE_CODE=$((BASE_CODE + GITHUB_RUN_NUMBER))
-          PROGRESSIVE_NAME="${VERSION_MAJOR:-1}.${VERSION_MINOR:-0}.${VERSION_PATCH:-0}-ci.${GITHUB_RUN_NUMBER}"
+          PROGRESSIVE_PATCH=$((BASE_PATCH + GITHUB_RUN_NUMBER))
+          PROGRESSIVE_NAME="${MAJOR}.${MINOR}.${PROGRESSIVE_PATCH}"
           echo "code=$PROGRESSIVE_CODE" >> "$GITHUB_OUTPUT"
           echo "name=$PROGRESSIVE_NAME" >> "$GITHUB_OUTPUT"
-          echo "Versione CI: $PROGRESSIVE_NAME (versionCode=$PROGRESSIVE_CODE)"
+          echo "tag=v$PROGRESSIVE_NAME" >> "$GITHUB_OUTPUT"
+          echo "Versione progressiva: v$PROGRESSIVE_NAME (versionCode=$PROGRESSIVE_CODE)"
 
       - name: Prepara debug.keystore
         shell: bash
@@ -60,7 +69,39 @@ jobs:
       - name: Esegui test unitari e Robolectric
         run: gradle :app:testDebugUnitTest --no-daemon
 
-      - name: Compila APK Debug con versione progressiva
+      - name: Verifica firma release (se configurata nei Secrets)
+        id: signing
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
+            echo "has_release_signing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_release_signing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compila APK Release firmato
+        if: steps.signing.outputs.has_release_signing == 'true'
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          gradle :app:assembleRelease \
+            -PversionCode=${{ steps.version.outputs.code }} \
+            -PversionName=${{ steps.version.outputs.name }} \
+            -PgithubRepo=${{ github.repository }} \
+            --no-daemon
+          mkdir -p artifacts
+          cp app/build/outputs/apk/release/app-release.apk \
+            "artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}.apk"
+          rm -f my-upload-key.jks
+
+      - name: Compila APK installabile (Debug firmato)
+        if: steps.signing.outputs.has_release_signing != 'true'
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -69,13 +110,9 @@ jobs:
             -PversionName=${{ steps.version.outputs.name }} \
             -PgithubRepo=${{ github.repository }} \
             --no-daemon
-
-      - name: Prepara artefatto APK
-        shell: bash
-        run: |
           mkdir -p artifacts
           cp app/build/outputs/apk/debug/app-debug.apk \
-            "artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}-debug.apk"
+            "artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}.apk"
 
       - name: Carica report test
         if: always()
@@ -85,9 +122,19 @@ jobs:
           path: app/build/reports/tests/testDebugUnitTest/
           retention-days: 14
 
-      - name: Carica APK compilato
+      - name: Carica APK come artefatto workflow
         uses: actions/upload-artifact@v4
         with:
           name: PantryMaster-v${{ steps.version.outputs.name }}-apk
           path: artifacts/*.apk
           retention-days: 30
+
+      - name: Pubblica GitHub Release con APK
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: PantryMaster ${{ steps.version.outputs.tag }} (build ${{ steps.version.outputs.code }})
+          generate_release_notes: true
+          make_latest: true
+          files: artifacts/*.apk
