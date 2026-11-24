@@ -125,6 +125,20 @@ jobs:
             echo "tag_name=${{ steps.tag_ver.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Prepara debug.keystore
+        shell: bash
+        run: |
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 --decode debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkeypair -v -keystore debug.keystore \
+                -storepass android -alias androiddebugkey -keypass android \
+                -keyalg RSA -keysize 2048 -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
       - name: Esegui test unitari
         run: gradle :app:testDebugUnitTest --no-daemon
 
