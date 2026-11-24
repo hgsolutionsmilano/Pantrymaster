@@ -83,6 +83,7 @@ fun ProductEditorScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val feedback by viewModel.feedbackMessage.collectAsStateWithLifecycle()
+    val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -172,6 +173,7 @@ fun ProductEditorScreen(
                 },
                 actions = {
                     IconButton(
+                        enabled = !isSaving,
                         onClick = {
                             val minStock = minStockText.replace(",", ".").toDoubleOrNull() ?: 0.0
                             val initQty = if (addInitialBatch) {
@@ -416,6 +418,7 @@ fun ProductEditorScreen(
             }
 
             Button(
+                enabled = !isSaving,
                 onClick = {
                     val minStock = minStockText.replace(",", ".").toDoubleOrNull() ?: 0.0
                     val initQty = if (addInitialBatch) {
@@ -448,7 +451,13 @@ fun ProductEditorScreen(
                     .height(52.dp)
                     .testTag("save_product_submit_button")
             ) {
-                Text(if (productId == null) "Salva in dispensa" else "Aggiorna prodotto")
+                Text(
+                    when {
+                        isSaving -> "Salvataggio in corso..."
+                        productId == null -> "Salva in dispensa"
+                        else -> "Aggiorna prodotto"
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))

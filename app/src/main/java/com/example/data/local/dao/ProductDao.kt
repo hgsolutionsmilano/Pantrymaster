@@ -38,6 +38,9 @@ interface ProductDao {
     @Query("SELECT * FROM products ORDER BY created_at DESC LIMIT :limit")
     fun observeRecentProducts(limit: Int): Flow<List<ProductWithDetails>>
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insert(product: ProductEntity)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(product: ProductEntity)
 

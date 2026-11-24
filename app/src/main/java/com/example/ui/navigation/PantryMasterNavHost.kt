@@ -244,9 +244,11 @@ fun PantryMasterNavHost(
                             prefillLocalImagePath = route.prefillLocalImagePath,
                             onBack = { navController.popBackStack() },
                             onSaved = { savedId ->
-                                navController.popBackStack()
-                                if (route.productId == null) {
-                                    navController.navigate(ProductDetailRoute(savedId))
+                                if (navController.currentBackStackEntry?.destination?.hasRoute<ProductEditorRoute>() == true) {
+                                    navController.popBackStack()
+                                    if (route.productId == null) {
+                                        navController.navigate(ProductDetailRoute(savedId))
+                                    }
                                 }
                             }
                         )

@@ -83,10 +83,44 @@ class PantryRepository @Inject constructor(
         sourceImageUrl: String? = null,
         initialBatch: NewBatchInput? = null
     ): String {
-        var finalProductId = product.id.ifBlank { UUID.randomUUID().toString() }
+        val finalProductId = product.id.ifBlank { UUID.randomUUID().toString() }
         database.withTransaction {
+            val locationDao = database.storageLocationDao()
+            val categoryDao = database.categoryDao()
+            if (locationDao.count() == 0) {
+                locationDao.insertAll(DatabaseSeeder.defaultLocations())
+            }
+            if (categoryDao.count() == 0) {
+                categoryDao.insertAll(DatabaseSeeder.defaultCategories())
+            }
+
+            val safeCategoryId = categoryDao.getById(product.categoryId)?.id
+                ?: categoryDao.getById(DatabaseSeeder.DEFAULT_CATEGORY_OTHER_ID)?.id
+                ?: categoryDao.getAll().first().id
+            val safeLocationId = locationDao.getById(product.defaultLocationId)?.id
+                ?: locationDao.getById(DatabaseSeeder.DEFAULT_LOCATION_PANTRY_ID)?.id
+                ?: locationDao.getAll().first().id
+
             val existing = productDao.getById(finalProductId)
-            var imageId = existing?.imageId
+            val now = System.currentTimeMillis()
+            val normalized = product.copy(
+                id = finalProductId,
+                barcode = product.barcode?.trim()?.takeIf { it.isNotEmpty() },
+                categoryId = safeCategoryId,
+                defaultLocationId = safeLocationId,
+                imageId = existing?.imageId,
+                minStockQuantity = product.minStockQuantity.coerceAtLeast(0.0),
+                createdAt = existing?.createdAt ?: product.createdAt,
+                updatedAt = now
+            )
+
+            // Save parent ProductEntity FIRST before inserting child ProductImageEntity / batches.
+            // Use @Update for existing products so SQLite INSERT OR REPLACE does not trigger ON DELETE CASCADE.
+            if (existing == null) {
+                productDao.insert(normalized)
+            } else {
+                productDao.update(normalized)
+            }
 
             if (!localImagePath.isNullOrBlank()) {
                 val oldImages = productImageDao.getForProduct(finalProductId)
@@ -103,20 +137,15 @@ class PantryRepository @Inject constructor(
                     sourceUrl = sourceImageUrl
                 )
                 productImageDao.upsert(newImage)
-                imageId = newImage.id
+                productDao.update(normalized.copy(imageId = newImage.id))
             }
 
-            val normalized = product.copy(
-                id = finalProductId,
-                barcode = product.barcode?.trim()?.takeIf { it.isNotEmpty() },
-                imageId = imageId,
-                minStockQuantity = product.minStockQuantity.coerceAtLeast(0.0),
-                updatedAt = System.currentTimeMillis()
-            )
-            productDao.upsert(normalized)
-
             if (initialBatch != null && initialBatch.quantity > 0.0) {
-                insertBatchAndMovementLocked(finalProductId, initialBatch)
+                val safeBatchLocationId = locationDao.getById(initialBatch.locationId)?.id ?: safeLocationId
+                insertBatchAndMovementLocked(
+                    productId = finalProductId,
+                    input = initialBatch.copy(locationId = safeBatchLocationId)
+                )
             }
         }
         return finalProductId

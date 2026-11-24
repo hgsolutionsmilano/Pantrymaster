@@ -250,4 +250,44 @@ class PantryDatabaseAndRepositoryTest {
         rawDb.close()
         context.deleteDatabase(dbName)
     }
+
+    @Test
+    fun `saveProduct with image and initial batch succeeds and edit preserves batches`() = runTest {
+        // Test saving even on an empty unseeded database with an image and initial batch
+        val productId = repository.saveProduct(
+            product = ProductEntity(
+                id = "",
+                name = "Latte Fresco",
+                brand = "Granarolo",
+                categoryId = "non_existent_cat",
+                defaultLocationId = "non_existent_loc",
+                unit = UnitOfMeasure.LITERS
+            ),
+            localImagePath = "/tmp/test_milk.jpg",
+            initialBatch = NewBatchInput(
+                quantity = 2.0,
+                unit = UnitOfMeasure.LITERS,
+                locationId = "non_existent_loc"
+            )
+        )
+
+        val created = db.productDao().getProductWithDetails(productId)
+        assertNotNull(created)
+        assertEquals("/tmp/test_milk.jpg", created!!.primaryImagePath)
+        assertEquals(1, created.activeBatches.size)
+        assertEquals(2.0, created.totalAvailableQuantity, 0.001)
+
+        // Editing the product must NOT cascade-delete batches or movements
+        repository.saveProduct(
+            product = created.product.copy(name = "Latte Fresco Alta Qualità"),
+            localImagePath = null,
+            initialBatch = null
+        )
+
+        val updated = db.productDao().getProductWithDetails(productId)
+        assertNotNull(updated)
+        assertEquals("Latte Fresco Alta Qualità", updated!!.product.name)
+        assertEquals(1, updated.activeBatches.size)
+        assertEquals("/tmp/test_milk.jpg", updated.primaryImagePath)
+    }
 }

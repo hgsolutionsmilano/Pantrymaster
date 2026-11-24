@@ -59,6 +59,8 @@ class PantryViewModel @Inject constructor(
     private val _filterState = MutableStateFlow(PantryFilterState())
     private val _feedbackMessage = MutableStateFlow<String?>(null)
     val feedbackMessage: StateFlow<String?> = _feedbackMessage.asStateFlow()
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
 
     val uiState: StateFlow<PantryListUiState> = combine(
         pantryRepository.observeAllProducts(),
@@ -168,51 +170,60 @@ class PantryViewModel @Inject constructor(
         initialBatchPrice: Double?,
         onSaved: (String) -> Unit
     ) {
+        if (_isSaving.value) return
         if (name.isBlank()) {
             _feedbackMessage.value = "Il nome del prodotto è obbligatorio."
             return
         }
         viewModelScope.launch {
-            val existing = productId?.let { id ->
-                uiState.value.products.firstOrNull { it.product.id == id }?.product
-            }
-            val entity = ProductEntity(
-                id = productId.orEmpty(),
-                name = name.trim(),
-                brand = brand.trim(),
-                barcode = barcode?.trim()?.takeIf { it.isNotEmpty() },
-                categoryId = categoryId,
-                defaultLocationId = defaultLocationId,
-                imageId = existing?.imageId,
-                description = description.trim(),
-                unit = unit,
-                minStockQuantity = minStockQuantity.coerceAtLeast(0.0),
-                notes = notes.trim(),
-                createdAt = existing?.createdAt ?: System.currentTimeMillis()
-            )
-            val batchInput = if (initialBatchQty != null && initialBatchQty > 0.0) {
-                NewBatchInput(
-                    quantity = initialBatchQty,
+            _isSaving.value = true
+            try {
+                val existing = productId?.let { id ->
+                    uiState.value.products.firstOrNull { it.product.id == id }?.product
+                }
+                val entity = ProductEntity(
+                    id = productId.orEmpty(),
+                    name = name.trim(),
+                    brand = brand.trim(),
+                    barcode = barcode?.trim()?.takeIf { it.isNotEmpty() },
+                    categoryId = categoryId,
+                    defaultLocationId = defaultLocationId,
+                    imageId = existing?.imageId,
+                    description = description.trim(),
                     unit = unit,
-                    purchaseDate = PantryDateUtils.todayStartMillis(),
-                    expiryDate = initialBatchExpiry,
-                    expiryType = initialBatchExpiryType,
-                    locationId = defaultLocationId,
-                    purchasePrice = initialBatchPrice,
-                    movementType = MovementType.MANUAL_ADD
+                    minStockQuantity = minStockQuantity.coerceAtLeast(0.0),
+                    notes = notes.trim(),
+                    createdAt = existing?.createdAt ?: System.currentTimeMillis()
                 )
-            } else {
-                null
+                val batchInput = if (initialBatchQty != null && initialBatchQty > 0.0) {
+                    NewBatchInput(
+                        quantity = initialBatchQty,
+                        unit = unit,
+                        purchaseDate = PantryDateUtils.todayStartMillis(),
+                        expiryDate = initialBatchExpiry,
+                        expiryType = initialBatchExpiryType,
+                        locationId = defaultLocationId,
+                        purchasePrice = initialBatchPrice,
+                        movementType = MovementType.MANUAL_ADD
+                    )
+                } else {
+                    null
+                }
+                val savedId = pantryRepository.saveProduct(
+                    product = entity,
+                    localImagePath = localImagePath,
+                    initialBatch = batchInput
+                )
+                if (batchInput != null) {
+                    runCatching { workScheduler.triggerImmediateExpiryCheck() }
+                }
+                onSaved(savedId)
+            } catch (e: Exception) {
+                _feedbackMessage.value = e.localizedMessage
+                    ?: "Errore durante il salvataggio del prodotto."
+            } finally {
+                _isSaving.value = false
             }
-            val savedId = pantryRepository.saveProduct(
-                product = entity,
-                localImagePath = localImagePath,
-                initialBatch = batchInput
-            )
-            if (batchInput != null) {
-                workScheduler.triggerImmediateExpiryCheck()
-            }
-            onSaved(savedId)
         }
     }
 
