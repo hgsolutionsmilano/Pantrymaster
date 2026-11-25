@@ -1,6 +1,5 @@
 package com.example.ui.screens.settings
 
-import android.content.Intent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
@@ -25,13 +24,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -41,7 +43,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,154 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
+import com.example.data.repository.AppSigningFormatter
 import com.example.data.repository.AppUpdateInfo
-import com.example.data.repository.AppUpdateRepository
-import com.example.data.repository.AppUpdateStatus
 import com.example.data.repository.InAppUpdateDownloadState
-import com.example.data.repository.InAppUpdateManager
-import com.example.data.repository.SettingsRepository
-import com.example.data.worker.WorkScheduler
 import com.example.domain.usecase.AppVersionComparator
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import javax.inject.Inject
-
-@Immutable
-data class StartupUpdateDialogState(
-    val updateInfo: AppUpdateInfo,
-    val downloadState: InAppUpdateDownloadState
-)
-
-@HiltViewModel
-class AppUpdateViewModel @Inject constructor(
-    private val appUpdateRepository: AppUpdateRepository,
-    private val inAppUpdateManager: InAppUpdateManager,
-    private val settingsRepository: SettingsRepository,
-    private val workScheduler: WorkScheduler
-) : ViewModel() {
-
-    private val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
-    private val _isPopupVisible = MutableStateFlow(false)
-    private var minimizedWhileDownloading = false
-
-    val installPromptIntents: SharedFlow<Intent> = inAppUpdateManager.installPromptIntents
-
-    val startupDialogState: StateFlow<StartupUpdateDialogState?> = combine(
-        _availableUpdate,
-        _isPopupVisible,
-        inAppUpdateManager.state
-    ) { info, visible, downloadState ->
-        if (!visible || info == null) {
-            null
-        } else {
-            StartupUpdateDialogState(
-                updateInfo = info,
-                downloadState = downloadState
-            )
-        }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
-
-    val notificationsEnabled: StateFlow<Boolean> = settingsRepository.observeSettings()
-        .map { it.notificationsEnabled }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = true
-        )
-
-    private var hasCheckedStartup = false
-
-    init {
-        viewModelScope.launch {
-            inAppUpdateManager.state.collect { dlState ->
-                if (dlState is InAppUpdateDownloadState.ReadyToInstall && minimizedWhileDownloading) {
-                    minimizedWhileDownloading = false
-                    _availableUpdate.value = dlState.updateInfo
-                    _isPopupVisible.value = true
-                } else if (dlState is InAppUpdateDownloadState.Error && minimizedWhileDownloading) {
-                    minimizedWhileDownloading = false
-                }
-            }
-        }
-    }
-
-    fun checkOnStartup() {
-        if (hasCheckedStartup) return
-        hasCheckedStartup = true
-        viewModelScope.launch {
-            val status = appUpdateRepository.checkForUpdates(force = false, bypassInterval = true)
-            if (status is AppUpdateStatus.UpdateAvailable) {
-                val info = status.info
-                _availableUpdate.value = info
-                _isPopupVisible.value = true
-                if (!info.apkDownloadUrl.isNullOrBlank()) {
-                    inAppUpdateManager.startBackgroundDownload(info)
-                }
-            }
-        }
-    }
-
-    fun onNotificationPermissionGranted() {
-        workScheduler.scheduleDailyExpiryCheck()
-        workScheduler.triggerImmediateExpiryCheck(isManual = false)
-    }
-
-    fun canRequestPackageInstalls(): Boolean = inAppUpdateManager.canRequestPackageInstalls()
-
-    fun installReadyUpdate() {
-        inAppUpdateManager.installDownloadedUpdate()
-    }
-
-    fun retryDownload() {
-        val info = _availableUpdate.value ?: return
-        if (!info.apkDownloadUrl.isNullOrBlank()) {
-            inAppUpdateManager.startBackgroundDownload(info, forceRestart = true)
-        } else {
-            viewModelScope.launch {
-                val refreshed = appUpdateRepository.checkForUpdates(force = true, bypassInterval = true)
-                if (refreshed is AppUpdateStatus.UpdateAvailable) {
-                    _availableUpdate.value = refreshed.info
-                    if (!refreshed.info.apkDownloadUrl.isNullOrBlank()) {
-                        inAppUpdateManager.startBackgroundDownload(refreshed.info, forceRestart = true)
-                    }
-                }
-            }
-        }
-    }
-
-    fun continueInBackground() {
-        minimizedWhileDownloading = inAppUpdateManager.state.value is InAppUpdateDownloadState.Downloading
-        _isPopupVisible.value = false
-    }
-
-    fun remindLater() {
-        minimizedWhileDownloading = false
-        _isPopupVisible.value = false
-    }
-
-    fun ignoreVersion(tagName: String) {
-        minimizedWhileDownloading = false
-        _isPopupVisible.value = false
-        _availableUpdate.value = null
-        inAppUpdateManager.cancelAndClear(tagName)
-        viewModelScope.launch {
-            appUpdateRepository.dismissUpdateTag(tagName)
-        }
-    }
-}
 
 @Composable
 fun AppUpdateAvailableDialog(
@@ -209,11 +66,16 @@ fun AppUpdateAvailableDialog(
     onContinueInBackground: () -> Unit,
     onRetryClick: () -> Unit,
     onRemindLater: () -> Unit,
-    onIgnoreVersion: () -> Unit
+    onIgnoreVersion: () -> Unit,
+    onExportBackupClick: (() -> Unit)? = null,
+    onSaveApkClick: (() -> Unit)? = null,
+    actionFeedbackMessage: String? = null,
+    isExporting: Boolean = false
 ) {
     val isReady = downloadState is InAppUpdateDownloadState.ReadyToInstall
     val isDownloading = downloadState is InAppUpdateDownloadState.Downloading
     val isInstalling = downloadState is InAppUpdateDownloadState.Installing
+    val isSignatureMismatch = downloadState is InAppUpdateDownloadState.SignatureMismatch
 
     Dialog(
         onDismissRequest = {
@@ -228,13 +90,14 @@ fun AppUpdateAvailableDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .widthIn(max = 420.dp)
+                .widthIn(max = 440.dp)
         ) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.padding(24.dp)
+                modifier = Modifier
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                // Premium Header
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -245,23 +108,35 @@ fun AppUpdateAvailableDialog(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .background(
+                                if (isSignatureMismatch) {
+                                    MaterialTheme.colorScheme.errorContainer
+                                } else {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                }
+                            )
                     ) {
                         Icon(
                             imageVector = when {
+                                isSignatureMismatch -> Icons.Default.WarningAmber
                                 isReady -> Icons.Default.CheckCircle
                                 isDownloading || isInstalling -> Icons.Default.SystemUpdate
                                 downloadState is InAppUpdateDownloadState.Error -> Icons.Default.ErrorOutline
                                 else -> Icons.Default.NewReleases
                             },
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = if (isSignatureMismatch) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
                             modifier = Modifier.size(26.dp)
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = when {
+                                isSignatureMismatch -> "Firma digitale diversa"
                                 isReady -> "Aggiornamento pronto"
                                 isInstalling -> "Installazione in corso"
                                 isDownloading -> "Nuova versione disponibile"
@@ -282,8 +157,7 @@ fun AppUpdateAvailableDialog(
                     }
                 }
 
-                // Release Notes Card
-                if (updateInfo.releaseNotes.isNotBlank()) {
+                if (updateInfo.releaseNotes.isNotBlank() && !isSignatureMismatch) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -311,7 +185,6 @@ fun AppUpdateAvailableDialog(
                     }
                 }
 
-                // Dynamic In-App Download / Install Status Area
                 AnimatedContent(
                     targetState = downloadState,
                     transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -462,6 +335,14 @@ fun AppUpdateAvailableDialog(
                             }
                         }
 
+                        is InAppUpdateDownloadState.SignatureMismatch -> {
+                            SignatureMismatchDetailsCard(
+                                state = state,
+                                isExporting = isExporting,
+                                actionFeedbackMessage = actionFeedbackMessage
+                            )
+                        }
+
                         is InAppUpdateDownloadState.Installing -> {
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
@@ -531,7 +412,6 @@ fun AppUpdateAvailableDialog(
                     }
                 }
 
-                // Action Buttons
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -570,29 +450,35 @@ fun AppUpdateAvailableDialog(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(if (canInstallPackages) "Aggiorna ora" else "Abilita e aggiorna")
                             }
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
+                            DialogDismissRow(onIgnoreVersion = onIgnoreVersion, onRemindLater = onRemindLater)
+                        }
+
+                        is InAppUpdateDownloadState.SignatureMismatch -> {
+                            Button(
+                                onClick = { onExportBackupClick?.invoke() },
+                                enabled = onExportBackupClick != null && !isExporting,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 48.dp)
+                                    .testTag("update_dialog_backup_button")
                             ) {
-                                TextButton(
-                                    onClick = onIgnoreVersion,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .defaultMinSize(minHeight = 48.dp)
-                                        .testTag("update_dialog_ignore_button")
-                                ) {
-                                    Text("Ignora")
-                                }
-                                OutlinedButton(
-                                    onClick = onRemindLater,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .defaultMinSize(minHeight = 48.dp)
-                                        .testTag("update_dialog_later_button")
-                                ) {
-                                    Text("Più tardi")
-                                }
+                                Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("1. Salva backup dati (.zip)")
                             }
+                            OutlinedButton(
+                                onClick = { onSaveApkClick?.invoke() },
+                                enabled = onSaveApkClick != null && !isExporting,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 48.dp)
+                                    .testTag("update_dialog_save_apk_button")
+                            ) {
+                                Icon(Icons.Default.SaveAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("2. Salva nuovo APK in Download")
+                            }
+                            DialogDismissRow(onIgnoreVersion = onIgnoreVersion, onRemindLater = onRemindLater)
                         }
 
                         is InAppUpdateDownloadState.Installing -> {
@@ -618,33 +504,122 @@ fun AppUpdateAvailableDialog(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Riprova download")
                             }
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                TextButton(
-                                    onClick = onIgnoreVersion,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .defaultMinSize(minHeight = 48.dp)
-                                        .testTag("update_dialog_ignore_button")
-                                ) {
-                                    Text("Ignora")
-                                }
-                                OutlinedButton(
-                                    onClick = onRemindLater,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .defaultMinSize(minHeight = 48.dp)
-                                        .testTag("update_dialog_later_button")
-                                ) {
-                                    Text("Più tardi")
-                                }
-                            }
+                            DialogDismissRow(onIgnoreVersion = onIgnoreVersion, onRemindLater = onRemindLater)
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SignatureMismatchDetailsCard(
+    state: InAppUpdateDownloadState.SignatureMismatch,
+    isExporting: Boolean,
+    actionFeedbackMessage: String?
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.65f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("update_dialog_signature_mismatch_card")
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(14.dp)
+            ) {
+                Text(
+                    text = "Questo pacchetto ha un certificato diverso dall'app installata. Android blocca l'aggiornamento diretto per sicurezza.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    text = "App attuale: ${if (state.installedIsDebug) "Debug" else "Release"} • ${AppSigningFormatter.shortFingerprint(state.installedFingerprint)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    text = "Nuovo APK: ${if (state.archiveIsDebug) "Debug" else "Release"} • ${AppSigningFormatter.shortFingerprint(state.archiveFingerprint)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Text(
+                    text = "Come allineare per sempre gli aggiornamenti:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "1. Salva il backup (.zip) dei tuoi dati.\n2. Salva il nuovo APK già scaricato in Download.\n3. Disinstalla questa versione, apri l'APK salvato e ripristina il backup da Impostazioni.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (isExporting) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
+        if (!actionFeedbackMessage.isNullOrBlank()) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = actionFeedbackMessage,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DialogDismissRow(
+    onIgnoreVersion: () -> Unit,
+    onRemindLater: () -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        TextButton(
+            onClick = onIgnoreVersion,
+            modifier = Modifier
+                .weight(1f)
+                .defaultMinSize(minHeight = 48.dp)
+                .testTag("update_dialog_ignore_button")
+        ) {
+            Text("Ignora")
+        }
+        OutlinedButton(
+            onClick = onRemindLater,
+            modifier = Modifier
+                .weight(1f)
+                .defaultMinSize(minHeight = 48.dp)
+                .testTag("update_dialog_later_button")
+        ) {
+            Text("Più tardi")
         }
     }
 }

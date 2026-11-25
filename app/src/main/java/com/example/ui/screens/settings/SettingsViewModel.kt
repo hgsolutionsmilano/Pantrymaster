@@ -7,6 +7,7 @@ import androidx.work.WorkInfo
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.SettingsEntity
 import com.example.data.preferences.UserPreferencesDataStore
+import com.example.data.repository.AppSigningDetails
 import com.example.data.repository.AppUpdateRepository
 import com.example.data.repository.AppUpdateStatus
 import com.example.data.repository.BackupOperationResult
@@ -39,7 +40,8 @@ data class SettingsUiState(
     val effectiveGithubRepo: String = "",
     val lastUpdateCheckAt: Long = 0L,
     val updateStatus: AppUpdateStatus = AppUpdateStatus.Idle,
-    val downloadState: InAppUpdateDownloadState = InAppUpdateDownloadState.Idle
+    val downloadState: InAppUpdateDownloadState = InAppUpdateDownloadState.Idle,
+    val signingDetails: AppSigningDetails = AppSigningDetails()
 )
 
 @HiltViewModel
@@ -56,6 +58,9 @@ class SettingsViewModel @Inject constructor(
     private val _updateStatus = MutableStateFlow<AppUpdateStatus>(AppUpdateStatus.Idle)
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+
+    private val installedSigningDetails: AppSigningDetails =
+        inAppUpdateManager.getInstalledSigningDetails()
 
     val uiState: StateFlow<SettingsUiState> = combine(
         settingsRepository.observeSettings(),
@@ -81,12 +86,13 @@ class SettingsViewModel @Inject constructor(
             effectiveGithubRepo = updateSlice.repo,
             lastUpdateCheckAt = updateSlice.lastCheck,
             updateStatus = updateSlice.status,
-            downloadState = updateSlice.downloadState
+            downloadState = updateSlice.downloadState,
+            signingDetails = installedSigningDetails
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SettingsUiState()
+        initialValue = SettingsUiState(signingDetails = installedSigningDetails)
     )
 
     private data class UpdateSettingsSlice(
@@ -280,6 +286,28 @@ class SettingsViewModel @Inject constructor(
 
     fun installDownloadedUpdate() {
         inAppUpdateManager.installDownloadedUpdate()
+    }
+
+    fun exportPendingUpdateApk(uri: Uri) {
+        val apkFile = when (val dlState = inAppUpdateManager.state.value) {
+            is InAppUpdateDownloadState.SignatureMismatch -> dlState.apkFile
+            is InAppUpdateDownloadState.ReadyToInstall -> dlState.apkFile
+            else -> null
+        }
+        if (apkFile == null || !apkFile.exists()) {
+            _message.value = "Pacchetto APK non disponibile in cache."
+            return
+        }
+        viewModelScope.launch {
+            _isBusy.value = true
+            val ok = inAppUpdateManager.exportApkToUri(apkFile, uri)
+            _isBusy.value = false
+            _message.value = if (ok) {
+                "APK salvato! Disinstalla questa app, apri il file salvato e ripristina il backup da Impostazioni."
+            } else {
+                "Impossibile salvare il pacchetto APK."
+            }
+        }
     }
 
     fun clearMessage() {

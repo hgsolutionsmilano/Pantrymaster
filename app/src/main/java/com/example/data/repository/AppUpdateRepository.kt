@@ -119,10 +119,7 @@ class AppUpdateRepository @Inject constructor(
                 return AppUpdateStatus.UpToDate(currentVersion, now)
             }
 
-            val apkAsset = release.assets.firstOrNull { asset ->
-                asset.name.endsWith(".apk", ignoreCase = true) &&
-                    asset.browserDownloadUrl.isNotBlank()
-            }
+            val apkAsset = selectPreferredApkAsset(release.assets)
 
             val info = AppUpdateInfo(
                 currentVersion = currentVersion,
@@ -175,5 +172,16 @@ class AppUpdateRepository @Inject constructor(
 
     companion object {
         private const val AUTO_CHECK_INTERVAL_MILLIS = 6L * 60L * 60L * 1000L
+
+        fun selectPreferredApkAsset(
+            assets: List<com.example.data.remote.GitHubAssetDto>
+        ): com.example.data.remote.GitHubAssetDto? {
+            return assets
+                .filter { asset ->
+                    asset.name.endsWith(".apk", ignoreCase = true) &&
+                        asset.browserDownloadUrl.isNotBlank()
+                }
+                .minByOrNull { asset -> asset.name.contains("debug", ignoreCase = true) }
+        }
     }
 }

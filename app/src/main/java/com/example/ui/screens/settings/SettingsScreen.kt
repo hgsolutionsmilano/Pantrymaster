@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
@@ -76,9 +78,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -91,6 +95,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.preferences.UserPreferencesDataStore
+import com.example.data.repository.AppSigningFormatter
 import com.example.data.repository.AppUpdateStatus
 import com.example.data.repository.InAppUpdateDownloadState
 import com.example.data.worker.ExpiryNotificationWorker
@@ -110,6 +115,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -181,6 +187,10 @@ fun SettingsScreen(
             viewModel.installDownloadedUpdate()
         }
     }
+
+    val saveUpdateApkLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/vnd.android.package-archive")
+    ) { uri -> uri?.let(viewModel::exportPendingUpdateApk) }
 
     val s = state.settings
 
@@ -613,6 +623,47 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Build: ${state.signingDetails.buildTypeLabel}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Firma SHA-256: ${state.signingDetails.shortFingerprint}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(state.signingDetails.sha256ColonHex))
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Impronta SHA-256 copiata.")
+                                    }
+                                },
+                                modifier = Modifier
+                                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                    .testTag("copy_signing_sha256_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copia impronta SHA-256"
+                                )
+                            }
+                        }
+                    }
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -736,6 +787,57 @@ fun SettingsScreen(
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                                             )
+                                        }
+
+                                        is InAppUpdateDownloadState.SignatureMismatch -> {
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = MaterialTheme.colorScheme.errorContainer,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier.padding(10.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Firma digitale diversa: serve una reinstallazione pulita.",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                                    )
+                                                    Text(
+                                                        text = "App: ${if (dlState.installedIsDebug) "Debug" else "Release"} (${AppSigningFormatter.shortFingerprint(dlState.installedFingerprint)})\nNuovo APK: ${if (dlState.archiveIsDebug) "Debug" else "Release"} (${AppSigningFormatter.shortFingerprint(dlState.archiveFingerprint)})",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                                    )
+                                                }
+                                            }
+                                            Button(
+                                                onClick = { createZipLauncher.launch("pantrymaster_backup.zip") },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .defaultMinSize(minHeight = 48.dp)
+                                                    .testTag("settings_mismatch_backup_button")
+                                            ) {
+                                                Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("1. Salva backup dati (.zip)")
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    val fileName = dlState.updateInfo.apkFileName
+                                                        ?: "PantryMaster-${dlState.updateInfo.tagName}.apk"
+                                                    saveUpdateApkLauncher.launch(fileName)
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .defaultMinSize(minHeight = 48.dp)
+                                                    .testTag("settings_mismatch_save_apk_button")
+                                            ) {
+                                                Icon(Icons.Default.SaveAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("2. Salva nuovo APK in Download")
+                                            }
                                         }
 
                                         is InAppUpdateDownloadState.Error -> {

@@ -97,6 +97,8 @@ fun PantryMasterNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val startupDialogState by updateViewModel.startupDialogState.collectAsStateWithLifecycle()
+    val backupActionMessage by updateViewModel.backupActionMessage.collectAsStateWithLifecycle()
+    val isExportingUpdate by updateViewModel.isExporting.collectAsStateWithLifecycle()
     val notificationsEnabled by updateViewModel.notificationsEnabled.collectAsStateWithLifecycle()
     var promptedNotificationPermission by rememberSaveable { mutableStateOf(false) }
 
@@ -115,6 +117,14 @@ fun PantryMasterNavHost(
             updateViewModel.installReadyUpdate()
         }
     }
+
+    val updateBackupZipLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> uri?.let(updateViewModel::exportBackupZip) }
+
+    val updateSaveApkLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/vnd.android.package-archive")
+    ) { uri -> uri?.let(updateViewModel::exportPendingApk) }
 
     LaunchedEffect(Unit) {
         updateViewModel.checkOnStartup()
@@ -167,7 +177,15 @@ fun PantryMasterNavHost(
             onContinueInBackground = updateViewModel::continueInBackground,
             onRetryClick = updateViewModel::retryDownload,
             onRemindLater = updateViewModel::remindLater,
-            onIgnoreVersion = { updateViewModel.ignoreVersion(dialog.updateInfo.tagName) }
+            onIgnoreVersion = { updateViewModel.ignoreVersion(dialog.updateInfo.tagName) },
+            onExportBackupClick = { updateBackupZipLauncher.launch("pantrymaster_backup.zip") },
+            onSaveApkClick = {
+                val fileName = dialog.updateInfo.apkFileName
+                    ?: "PantryMaster-${dialog.updateInfo.tagName}.apk"
+                updateSaveApkLauncher.launch(fileName)
+            },
+            actionFeedbackMessage = backupActionMessage,
+            isExporting = isExportingUpdate
         )
     }
 
