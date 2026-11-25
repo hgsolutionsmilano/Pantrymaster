@@ -16,6 +16,7 @@ import javax.inject.Singleton
 data class AppUpdateInfo(
     val currentVersion: String,
     val latestVersion: String,
+    val latestBuildCode: Int? = null,
     val tagName: String,
     val releaseTitle: String,
     val releaseNotes: String,
@@ -57,16 +58,21 @@ class AppUpdateRepository @Inject constructor(
         return AppVersionComparator.parseRepoSlug(raw)
     }
 
-    suspend fun checkForUpdates(force: Boolean): AppUpdateStatus {
+    suspend fun checkForUpdates(
+        force: Boolean,
+        bypassInterval: Boolean = false
+    ): AppUpdateStatus {
         val repoPair = resolveRepositoryPair() ?: return AppUpdateStatus.NotConfigured
 
         if (!force) {
             val autoEnabled = preferencesDataStore.autoUpdateEnabled.first()
             if (!autoEnabled) return AppUpdateStatus.Idle
-            val lastCheck = preferencesDataStore.lastUpdateCheckAt.first()
-            val now = System.currentTimeMillis()
-            if (lastCheck > 0L && (now - lastCheck) < AUTO_CHECK_INTERVAL_MILLIS) {
-                return AppUpdateStatus.Idle
+            if (!bypassInterval) {
+                val lastCheck = preferencesDataStore.lastUpdateCheckAt.first()
+                val now = System.currentTimeMillis()
+                if (lastCheck > 0L && (now - lastCheck) < AUTO_CHECK_INTERVAL_MILLIS) {
+                    return AppUpdateStatus.Idle
+                }
             }
         }
 
@@ -95,12 +101,16 @@ class AppUpdateRepository @Inject constructor(
             }
 
             val currentVersion = BuildConfig.VERSION_NAME
-            val isNewer = AppVersionComparator.isRemoteNewer(
+            val currentBuildCode = BuildConfig.VERSION_CODE
+            val remoteBuildCode = AppVersionComparator.extractBuildCode(release.name)
+            val isEligible = AppVersionComparator.isUpdateEligible(
                 currentVersion = currentVersion,
-                remoteVersion = release.tagName
+                currentBuildCode = currentBuildCode,
+                remoteTag = release.tagName,
+                remoteReleaseName = release.name
             )
 
-            if (!isNewer) {
+            if (!isEligible) {
                 return AppUpdateStatus.UpToDate(currentVersion, now)
             }
 
@@ -117,6 +127,7 @@ class AppUpdateRepository @Inject constructor(
             val info = AppUpdateInfo(
                 currentVersion = currentVersion,
                 latestVersion = AppVersionComparator.normalizeTag(release.tagName),
+                latestBuildCode = remoteBuildCode,
                 tagName = release.tagName,
                 releaseTitle = release.name?.takeIf { it.isNotBlank() }
                     ?: "PantryMaster ${release.tagName}",

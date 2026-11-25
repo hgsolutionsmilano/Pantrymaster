@@ -59,6 +59,13 @@ object AppVersionComparator {
         return rawVersion.trim().removePrefix("v").removePrefix("V")
     }
 
+    private val buildCodeRegex = Regex("""\(build\s+(\d+)\)""", RegexOption.IGNORE_CASE)
+
+    fun extractBuildCode(releaseName: String?): Int? {
+        if (releaseName.isNullOrBlank()) return null
+        return buildCodeRegex.find(releaseName)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    }
+
     fun isRemoteNewer(currentVersion: String, remoteVersion: String): Boolean {
         val current = parse(currentVersion)
         val remote = parse(remoteVersion)
@@ -66,6 +73,29 @@ object AppVersionComparator {
             return remote > current
         }
         return normalizeTag(remoteVersion) != normalizeTag(currentVersion)
+    }
+
+    fun isUpdateEligible(
+        currentVersion: String,
+        currentBuildCode: Int,
+        remoteTag: String,
+        remoteReleaseName: String? = null
+    ): Boolean {
+        val remoteBuildCode = extractBuildCode(remoteReleaseName)
+        if (remoteBuildCode != null && remoteBuildCode < currentBuildCode) {
+            return false
+        }
+        if (isRemoteNewer(currentVersion = currentVersion, remoteVersion = remoteTag)) {
+            return true
+        }
+        val current = parse(currentVersion)
+        val remote = parse(remoteTag)
+        val sameVersion = if (current != null && remote != null) {
+            remote.compareTo(current) == 0
+        } else {
+            normalizeTag(remoteTag) == normalizeTag(currentVersion)
+        }
+        return sameVersion && remoteBuildCode != null && remoteBuildCode > currentBuildCode
     }
 
     fun parseRepoSlug(raw: String): Pair<String, String>? {

@@ -73,7 +73,7 @@ class AppUpdateViewModel @Inject constructor(
         if (hasCheckedStartup) return
         hasCheckedStartup = true
         viewModelScope.launch {
-            val status = appUpdateRepository.checkForUpdates(force = false)
+            val status = appUpdateRepository.checkForUpdates(force = false, bypassInterval = true)
             if (status is AppUpdateStatus.UpdateAvailable) {
                 _availableUpdate.value = status.info
             }
@@ -125,7 +125,7 @@ fun AppUpdateAvailableDialog(
         },
         title = {
             Text(
-                text = "Nuovo aggiornamento disponibile",
+                text = "Nuova versione disponibile",
                 style = MaterialTheme.typography.titleLarge
             )
         },
@@ -134,6 +134,10 @@ fun AppUpdateAvailableDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
+                Text(
+                    text = "Vuoi scaricare e installare l'aggiornamento v${updateInfo.latestVersion}? I tuoi dati in dispensa rimarranno invariati.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -149,8 +153,12 @@ fun AppUpdateAvailableDialog(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
+                        val versionLine = buildString {
+                            append("Versione ${updateInfo.currentVersion} → ${updateInfo.latestVersion}")
+                            updateInfo.latestBuildCode?.let { append(" (build $it)") }
+                        }
                         Text(
-                            text = "Versione ${updateInfo.currentVersion} → ${updateInfo.latestVersion}",
+                            text = versionLine,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -197,7 +205,7 @@ fun AppUpdateAvailableDialog(
             ) {
                 Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Scarica da GitHub")
+                Text("Scarica e installa")
             }
         },
         dismissButton = {

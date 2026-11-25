@@ -58,7 +58,7 @@ jobs:
           token = os.environ.get("GH_TOKEN", "")
           max_build = 0
           if repo:
-              req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases?per_page=30")
+              req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases?per_page=100")
               req.add_header("Accept", "application/vnd.github+json")
               if token:
                   req.add_header("Authorization", f"Bearer {token}")
@@ -75,12 +75,28 @@ jobs:
           PY
           )
 
+          HIGHEST_PATCH_FOR_PREFIX=$(python3 - <<PY
+          import re, subprocess
+          major, minor = int("${MAJOR}"), int("${MINOR}")
+          max_patch = -1
+          out = subprocess.check_output(["git", "tag", "-l", f"v{major}.{minor}.*"], text=True)
+          for line in out.splitlines():
+              m = re.match(rf"^v{major}\.{minor}\.(\d+)$", line.strip())
+              if m:
+                  max_patch = max(max_patch, int(m.group(1)))
+          print(max_patch)
+          PY
+          )
+
           PROGRESSIVE_CODE=$((BASE_CODE + GITHUB_RUN_NUMBER))
           if [ "$PROGRESSIVE_CODE" -le "$MAX_RELEASE_BUILD" ]; then
             PROGRESSIVE_CODE=$((MAX_RELEASE_BUILD + 1))
           fi
 
           PROGRESSIVE_PATCH=$((BASE_PATCH + GITHUB_RUN_NUMBER))
+          if [ "$HIGHEST_PATCH_FOR_PREFIX" -ge "$PROGRESSIVE_PATCH" ]; then
+            PROGRESSIVE_PATCH=$((HIGHEST_PATCH_FOR_PREFIX + 1))
+          fi
           while git rev-parse "v${MAJOR}.${MINOR}.${PROGRESSIVE_PATCH}" >/dev/null 2>&1; do
             PROGRESSIVE_PATCH=$((PROGRESSIVE_PATCH + 1))
           done
@@ -91,19 +107,25 @@ jobs:
           echo "tag=v$PROGRESSIVE_NAME" >> "$GITHUB_OUTPUT"
           echo "Versione progressiva: v$PROGRESSIVE_NAME (versionCode=$PROGRESSIVE_CODE)"
 
-      - name: Prepara debug.keystore
+      - name: Prepara debug.keystore coerente
         shell: bash
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           if [ ! -f debug.keystore ]; then
             if [ -f debug.keystore.base64 ]; then
               base64 --decode debug.keystore.base64 > debug.keystore
+            elif [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+              echo "$DEBUG_KEYSTORE_BASE64" | base64 --decode > debug.keystore
             else
+              echo "::warning::debug.keystore.base64 mancante: uso keystore temporaneo (le firme non coincideranno tra build diverse)."
               keytool -genkeypair -v -keystore debug.keystore \
                 -storepass android -alias androiddebugkey -keypass android \
                 -keyalg RSA -keysize 2048 -validity 10000 \
                 -dname "CN=Android Debug,O=Android,C=US"
             fi
           fi
+          keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
 
       - name: Esegui test unitari e Robolectric
         run: gradle :app:testDebugUnitTest --no-daemon
@@ -113,9 +135,12 @@ jobs:
         shell: bash
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
             echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
+            keytool -list -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias upload >/dev/null
             echo "has_release_signing=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_release_signing=false" >> "$GITHUB_OUTPUT"
@@ -152,6 +177,12 @@ jobs:
           mkdir -p artifacts
           cp app/build/outputs/apk/debug/app-debug.apk \
             "artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}.apk"
+
+      - name: Verifica firma APK generato
+        shell: bash
+        run: |
+          APK_FILE=$(ls artifacts/*.apk | head -n 1)
+          keytool -printcert -jarfile "$APK_FILE" | grep -E "Owner:|SHA256:" || true
 
       - name: Carica report test
         if: always()
