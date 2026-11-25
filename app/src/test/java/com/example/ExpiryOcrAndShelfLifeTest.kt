@@ -70,10 +70,38 @@ class ExpiryOcrAndShelfLifeTest {
         assertNotNull(compactText)
         assertEquals(PantryDateUtils.normalizeToUtcMidnight(2027, 9, 15), compactText!!.expiryDateMillis)
 
-        val ocrTextMonth = ExpiryDateOcrParser.parseBestCandidate("TMC 1O/OTT/2O27", todayMillis = fixedToday)
+        val ocrTextMonth = ExpiryDateOcrParser.parseBestCandidate("TMC 1O/0TT/2O27", todayMillis = fixedToday)
         assertNotNull(ocrTextMonth)
         assertEquals(PantryDateUtils.normalizeToUtcMidnight(2027, 9, 10), ocrTextMonth!!.expiryDateMillis)
         assertEquals(ExpiryType.BEST_BEFORE, ocrTextMonth.expiryType)
+    }
+
+    @Test
+    fun parseGluedLotSuffixesMixedSeparatorsAndCrossLineCompactDates() {
+        val gluedLot = ExpiryDateOcrParser.parseBestCandidate("18/11/26L402", todayMillis = fixedToday)
+        assertNotNull(gluedLot)
+        assertEquals(PantryDateUtils.normalizeToUtcMidnight(2026, 10, 18), gluedLot!!.expiryDateMillis)
+
+        val gluedPrefix = ExpiryDateOcrParser.parseBestCandidate("SCAD18/12/2026A", todayMillis = fixedToday)
+        assertNotNull(gluedPrefix)
+        assertEquals(PantryDateUtils.normalizeToUtcMidnight(2026, 11, 18), gluedPrefix!!.expiryDateMillis)
+
+        val mixedSep = ExpiryDateOcrParser.parseBestCandidate("18.11 2027", todayMillis = fixedToday)
+        assertNotNull(mixedSep)
+        assertEquals(PantryDateUtils.normalizeToUtcMidnight(2027, 10, 18), mixedSep!!.expiryDateMillis)
+
+        val crossLineCompact = ExpiryDateOcrParser.parseBestCandidate(
+            "Da consumarsi preferibilmente entro:\n18112027",
+            todayMillis = fixedToday
+        )
+        assertNotNull(crossLineCompact)
+        assertEquals(PantryDateUtils.normalizeToUtcMidnight(2027, 10, 18), crossLineCompact!!.expiryDateMillis)
+        assertEquals(ExpiryType.BEST_BEFORE, crossLineCompact.expiryType)
+
+        val spaceMonthYear = ExpiryDateOcrParser.parseBestCandidate("TMC 08 2027", todayMillis = fixedToday)
+        assertNotNull(spaceMonthYear)
+        assertEquals(PantryDateUtils.normalizeToUtcMidnight(2027, 7, 31), spaceMonthYear!!.expiryDateMillis)
+        assertEquals(ExpiryType.BEST_BEFORE, spaceMonthYear.expiryType)
     }
 
     @Test
@@ -96,7 +124,7 @@ class ExpiryOcrAndShelfLifeTest {
     }
 
     @Test
-    fun consensusTrackerRequiresMultipleConsistentFramesBeforeLocking() {
+    fun consensusTrackerRequiresMultipleConsistentFramesAndHandlesSlowFramerate() {
         val tracker = OcrDateConsensusTracker()
         val match = ExpiryDateOcrParser.parseBestCandidate("SCAD 12/06/2027", todayMillis = fixedToday)
         assertNotNull(match)
@@ -104,10 +132,17 @@ class ExpiryOcrAndShelfLifeTest {
         // Single frame must not lock immediately (prevents dot-matrix OCR flicker)
         assertNull(tracker.submit(match, nowMillis = 1000L))
 
-        // Second matching frame with keyword cue locks on
-        val locked = tracker.submit(match, nowMillis = 1200L)
+        // Second matching frame even 3 seconds later locks on cleanly
+        val locked = tracker.submit(match, nowMillis = 4000L)
         assertNotNull(locked)
         assertEquals(match!!.expiryDateMillis, locked!!.expiryDateMillis)
+
+        // Bare 4-digit full date without keyword also locks in 2 frames
+        val bareTracker = OcrDateConsensusTracker()
+        val bareFull = ExpiryDateOcrParser.parseBestCandidate("18/11/2027", todayMillis = fixedToday)
+        assertNotNull(bareFull)
+        assertNull(bareTracker.submit(bareFull, nowMillis = 1000L))
+        assertNotNull(bareTracker.submit(bareFull, nowMillis = 1500L))
     }
 
     @Test

@@ -4,7 +4,6 @@ import com.example.BuildConfig
 import com.example.data.remote.GitHubReleaseApi
 import com.example.data.remote.OpenFoodFactsApi
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -34,7 +33,7 @@ object NetworkModule {
             chain.proceed(request)
         }
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }
         return OkHttpClient.Builder()
             .connectTimeout(12, TimeUnit.SECONDS)
@@ -47,9 +46,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideMoshi(): Moshi = Moshi.Builder()
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
+    fun provideMoshi(): Moshi = Moshi.Builder().build()
 
     @Provides
     @Singleton

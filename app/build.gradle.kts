@@ -70,8 +70,12 @@ android {
 
   buildTypes {
     release {
-      isCrunchPngs = false
-      isMinifyEnabled = false
+      isCrunchPngs = true
+      isMinifyEnabled = true
+      isShrinkResources = true
+      ndk {
+        abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+      }
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
@@ -93,6 +97,22 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  androidResources {
+    localeFilters += listOf("it", "en")
+  }
+  packaging {
+    resources {
+      excludes += setOf(
+        "DebugProbesKt.bin",
+        "META-INF/AL2.0",
+        "META-INF/LGPL2.1",
+        "META-INF/LICENSE*",
+        "META-INF/NOTICE*",
+        "META-INF/CHANGES",
+        "META-INF/README*"
+      )
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
@@ -153,7 +173,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.logging.interceptor)
-  implementation(libs.moshi.kotlin)
+  implementation(libs.moshi)
   implementation(libs.okhttp)
   implementation(libs.retrofit)
 

@@ -1,21 +1,46 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Keep annotations & generic signatures required by Retrofit, Moshi, Room & Kotlinx Serialization
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Kotlinx Serialization (type-safe Navigation Compose routes, Room enums, JSON backup)
+-keepattributes RuntimeVisibleAnnotations,AnnotationDefault
+-keepclassmembers class * {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keep,includedescriptorclasses class com.example.ui.navigation.**$$serializer { *; }
+-keepclassmembers class com.example.ui.navigation.** {
+    *** Companion;
+}
+-keep,includedescriptorclasses class com.example.data.local.entity.**$$serializer { *; }
+-keep,includedescriptorclasses class com.example.domain.model.**$$serializer { *; }
+-keep class com.example.ui.navigation.PantryDestination
+-keep class * implements com.example.ui.navigation.PantryDestination
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Moshi KSP-generated adapters
+-keep class * extends com.squareup.moshi.JsonAdapter {
+    public <init>(com.squareup.moshi.Moshi);
+}
+-keep @com.squareup.moshi.JsonClass class com.example.data.remote.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Retrofit interfaces
+-keep interface com.example.data.remote.** { *; }
+
+# App receivers and workers referenced in AndroidManifest / WorkManager
+-keep class com.example.data.repository.AppUpdateInstallReceiver { *; }
+-keep class com.example.data.worker.BootCompletedReceiver { *; }
+-keep class com.example.data.worker.ExpiryNotificationWorker { *; }
+-keep class com.example.data.worker.AppUpdateCheckWorker { *; }
+
+# Suppress optional R8 warnings from unused transitive references
+-dontwarn okhttp3.**
+-dontwarn retrofit2.**
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**
+-dontwarn org.bouncycastle.**
+
+# Strip verbose/debug logs in release builds
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+}
+

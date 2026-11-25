@@ -29,40 +29,50 @@ object ExpiryDateOcrParser {
         "FEB" to 1, "FEBBRAIO" to 1, "FEBRUARY" to 1,
         "MAR" to 2, "MARZO" to 2, "MARCH" to 2,
         "APR" to 3, "APRILE" to 3, "APRIL" to 3,
-        "MAG" to 4, "MAGGIO" to 4, "MAY" to 4,
-        "GIU" to 5, "GIUGNO" to 5, "JUN" to 5, "JUNE" to 5,
+        "MAG" to 4, "MA6" to 4, "MAGGIO" to 4, "MAY" to 4,
+        "GIU" to 5, "G1U" to 5, "GIUGNO" to 5, "JUN" to 5, "JUNE" to 5,
         "LUG" to 6, "LUGLIO" to 6, "JUL" to 6, "JULY" to 6,
-        "AGO" to 7, "AGOSTO" to 7, "AUG" to 7, "AUGUST" to 7,
+        "AGO" to 7, "AG0" to 7, "AGOSTO" to 7, "AUG" to 7, "AUGUST" to 7,
         "SET" to 8, "SETT" to 8, "SETTEMBRE" to 8, "SEP" to 8, "SEPT" to 8, "SEPTEMBER" to 8,
-        "OTT" to 9, "OTTOBRE" to 9, "OCT" to 9, "OCTOBER" to 9,
-        "NOV" to 10, "NOVEMBRE" to 10, "NOVEMBER" to 10,
-        "DIC" to 11, "DICEMBRE" to 11, "DEC" to 11, "DECEMBER" to 11
+        "OTT" to 9, "0TT" to 9, "OTTOBRE" to 9, "OCT" to 9, "0CT" to 9, "OCTOBER" to 9,
+        "NOV" to 10, "N0V" to 10, "NOVEMBRE" to 10, "NOVEMBER" to 10,
+        "DIC" to 11, "D1C" to 11, "DICEMBRE" to 11, "DEC" to 11, "DECEMBER" to 11
     )
 
-    // Patterns with explicit separators allow controlled OCR lookalike normalization inside numeric tokens.
+    // Digit-lookalike character class used inside separated date tokens
+    private const val OCR_DIGIT = "0-9OoIl|iSsBZDQ"
+
+    // Explicit separators (/ . -), allowing glued cue prefix (SCAD18/11/26) and glued lot suffix (18/11/26L402)
     private val sepDmyRegex = Regex(
-        """(?<![0-9A-Za-z])([0-9OoIlSsBZ]{1,2})\s*[/.\-]\s*([0-9OoIlSsBZ]{1,2})\s*[/.\-]\s*([0-9OoIlSsBZ]{2,4})(?![0-9A-Za-z])"""
+        """(?<![0-9])([$OCR_DIGIT]{1,2})\s*[/.\-]\s*([$OCR_DIGIT]{1,2})\s*[/.\-]\s*([$OCR_DIGIT]{2,4})(?![$OCR_DIGIT])"""
     )
-    private val spaceDmyRegex = Regex(
-        """(?<![0-9A-Za-z])(\d{1,2})\s+(\d{1,2})\s+(\d{2,4})(?![0-9A-Za-z])"""
+    // Mixed separators or spaces ("18 11 26", "18.11 2027", "18/11 26", "18 11.26")
+    private val mixedSpaceDmyRegex = Regex(
+        """(?<![0-9A-Za-z])([$OCR_DIGIT]{1,2})\s*[/.\-\s]\s*([$OCR_DIGIT]{1,2})\s*[/.\-\s]\s*([$OCR_DIGIT]{2,4})(?![$OCR_DIGIT])"""
     )
     private val isoYmdRegex = Regex(
-        """(?<![0-9A-Za-z])(20[0-9OoIlSsBZ]{2})\s*[/.\-]\s*([0-9OoIlSsBZ]{1,2})\s*[/.\-]\s*([0-9OoIlSsBZ]{1,2})(?![0-9A-Za-z])"""
+        """(?<![0-9])(20[$OCR_DIGIT]{2})\s*[/.\-\s]\s*([$OCR_DIGIT]{1,2})\s*[/.\-\s]\s*([$OCR_DIGIT]{1,2})(?![$OCR_DIGIT])"""
     )
     private const val MONTH_PATTERN =
-        "GENNAIO|GEN|JANUARY|JAN|FEBBRAIO|FEB|FEBRUARY|MARZO|MAR|MARCH|APRILE|APR|APRIL|MAGGIO|MAG|MAY|GIUGNO|GIU|JUNE|JUN|LUGLIO|LUG|JULY|JUL|AGOSTO|AGO|AUGUST|AUG|SETTEMBRE|SETT|SET|SEPTEMBER|SEPT|SEP|OTTOBRE|OTT|OCTOBER|OCT|NOVEMBRE|NOV|NOVEMBER|DICEMBRE|DIC|DECEMBER|DEC"
+        "GENNAIO|GEN|JANUARY|JAN|FEBBRAIO|FEB|FEBRUARY|MARZO|MAR|MARCH|APRILE|APR|APRIL|MAGGIO|MAG|MA6|MAY|GIUGNO|GIU|G1U|JUNE|JUN|LUGLIO|LUG|JULY|JUL|AGOSTO|AGO|AG0|AUGUST|AUG|SETTEMBRE|SETT|SET|SEPTEMBER|SEPT|SEP|OTTOBRE|OTT|0TT|OCTOBER|OCT|0CT|NOVEMBRE|NOV|N0V|NOVEMBER|DICEMBRE|DIC|D1C|DECEMBER|DEC"
 
     private val textualDmyRegex = Regex(
-        """(?i)(?<![0-9A-Za-z])([0-9]{1,2}|[0-9OoIlSsBZ]{1,2}(?=[/.\-\s]))\s*[/.\-\s]?\s*($MONTH_PATTERN)\.?\s*[/.\-\s]?\s*([0-9]{2,4}|(?<=[/.\-\s])[0-9OoIlSsBZ]{2,4})(?![0-9A-Za-z])"""
+        """(?i)(?<![0-9])([0-9]{1,2}|[$OCR_DIGIT]{1,2}(?=[/.\-\s]))\s*[/.\-\s]?\s*($MONTH_PATTERN)\.?\s*[/.\-\s]?\s*([0-9]{2,4}|(?<=[/.\-\s])[$OCR_DIGIT]{2,4})(?![$OCR_DIGIT])"""
     )
     private val textualMyRegex = Regex(
-        """(?i)(?<![0-9A-Za-z])($MONTH_PATTERN)\.?\s*[/.\-\s]\s*([0-9OoIlSsBZ]{2,4})(?![0-9A-Za-z])"""
+        """(?i)(?<![0-9A-Za-z])($MONTH_PATTERN)\.?\s*[/.\-\s]\s*([$OCR_DIGIT]{2,4})(?![$OCR_DIGIT])"""
     )
     private val sepMyRegex = Regex(
-        """(?<![0-9A-Za-z])([0-9OoIlSsBZ]{1,2})\s*[/.\-]\s*([0-9OoIlSsBZ]{2,4})(?![0-9A-Za-z])"""
+        """(?<![0-9])([$OCR_DIGIT]{1,2})\s*[/.\-]\s*([$OCR_DIGIT]{2,4})(?![$OCR_DIGIT])"""
+    )
+    private val spaceMyRegex = Regex(
+        """(?<![0-9A-Za-z])([$OCR_DIGIT]{1,2})\s+(20[$OCR_DIGIT]{2}|[$OCR_DIGIT]{2})(?![$OCR_DIGIT])"""
     )
     private val compactCueRegex = Regex(
-        """(?i)\b(?:SCAD(?:ENZA)?|EXP(?:IRY)?|TMC|BBE|USE\s*BY)\b[:.\s\-]*(\d{2})(\d{2})(\d{2,4})\b"""
+        """(?i)\b(?:SCAD(?:ENZA)?|EXP(?:IRY)?|TMC|BBE|USE\s*BY)\b[:.\s\-]*([$OCR_DIGIT]{2})([$OCR_DIGIT]{2})([$OCR_DIGIT]{2,4})(?![$OCR_DIGIT])"""
+    )
+    private val bareCompactDmyRegex = Regex(
+        """(?<![0-9])(\d{2})(\d{2})(20\d{2}|\d{2})(?![0-9])"""
     )
 
     private val bestBeforeCues = listOf(
@@ -136,7 +146,8 @@ object ExpiryDateOcrParser {
                 baseScore: Int,
                 isFourDigitFullDate: Boolean,
                 useEndOfMonth: Boolean,
-                matchedSubstring: String
+                matchedSubstring: String,
+                forceKeywordCue: Boolean = false
             ) {
                 if (year == null || monthZeroBased == null) return
                 val resolvedDay = if (useEndOfMonth) {
@@ -147,13 +158,14 @@ object ExpiryDateOcrParser {
                 val millis = toValidatedUtcMidnight(year, monthZeroBased, resolvedDay) ?: return
                 if (millis < minAllowedMillis || millis > maxAllowedMillis) return
 
+                val effectiveCue = hasKeywordCue || forceKeywordCue
                 val prefixBefore = text.substring(0, range.first)
-                val looksLikeLot = !hasKeywordCue && lotPrefixRegex.containsMatchIn(prefixBefore)
+                val looksLikeLot = !effectiveCue && lotPrefixRegex.containsMatchIn(prefixBefore)
 
                 var score = baseScore
-                if (hasBestBefore || hasUseBy) score += 25 else if (hasGenericEntro) score += 15
+                if (hasBestBefore || hasUseBy || forceKeywordCue) score += 25 else if (hasGenericEntro) score += 15
                 if (line.inCoreRoi) score += 15
-                if (millis >= todayMillis) score += 12 else score -= 15
+                if (millis >= todayMillis) score += 12 else score -= 8
                 if (hasProdNegative) score -= 60
                 if (looksLikeLot) score -= 50
 
@@ -165,14 +177,14 @@ object ExpiryDateOcrParser {
                             expiryType = detectedType,
                             confidence = score,
                             matchedText = matchedSubstring.trim(),
-                            hasKeywordCue = hasKeywordCue,
+                            hasKeywordCue = effectiveCue,
                             isFourDigitFullDate = isFourDigitFullDate
                         )
                     )
                 }
             }
 
-            // 1. ISO YYYY-MM-DD
+            // 1. ISO YYYY-MM-DD / YYYY MM DD
             for (m in isoYmdRegex.findAll(text)) {
                 val y = parseYear(m.groupValues[1], allowTwoDigit = false)
                 val mo = parseIntOcr(m.groupValues[2])?.minus(1)
@@ -180,7 +192,7 @@ object ExpiryDateOcrParser {
                 evaluateAndAdd(m.range, y, mo, d, baseScore = 50, isFourDigitFullDate = true, useEndOfMonth = false, m.value)
             }
 
-            // 2. DD/MM/YYYY or DD.MM.YY with explicit separators
+            // 2. DD/MM/YYYY or DD.MM.YY with explicit separators (supports SCAD18/11/26 and 18/11/26L402)
             for (m in sepDmyRegex.findAll(text)) {
                 if (overlapsCovered(m.range)) continue
                 val d = parseIntOcr(m.groupValues[1])
@@ -188,21 +200,10 @@ object ExpiryDateOcrParser {
                 val yearRaw = m.groupValues[3]
                 val y = parseYear(yearRaw, allowTwoDigit = true)
                 val is4Digit = normalizeDigits(yearRaw)?.length == 4
-                evaluateAndAdd(m.range, y, mo, d, baseScore = if (is4Digit) 52 else 46, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value)
+                evaluateAndAdd(m.range, y, mo, d, baseScore = if (is4Digit) 54 else 48, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value)
             }
 
-            // 3. DD MM YYYY (space-separated strict digits)
-            for (m in spaceDmyRegex.findAll(text)) {
-                if (overlapsCovered(m.range)) continue
-                val d = m.groupValues[1].toIntOrNull()
-                val mo = m.groupValues[2].toIntOrNull()?.minus(1)
-                val yearRaw = m.groupValues[3]
-                val y = parseYearStrict(yearRaw)
-                val is4Digit = yearRaw.length == 4
-                evaluateAndAdd(m.range, y, mo, d, baseScore = if (is4Digit) 48 else 42, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value)
-            }
-
-            // 4. Textual day-month-year: "15 OTT 2026", "5 MAG 27"
+            // 3. Textual day-month-year: "15 OTT 2026", "5 MAG 27", "15OTT2027"
             for (m in textualDmyRegex.findAll(text)) {
                 if (overlapsCovered(m.range)) continue
                 val d = parseIntOcr(m.groupValues[1])
@@ -210,38 +211,74 @@ object ExpiryDateOcrParser {
                 val yearRaw = m.groupValues[3]
                 val y = parseYear(yearRaw, allowTwoDigit = true)
                 val is4Digit = normalizeDigits(yearRaw)?.length == 4
-                evaluateAndAdd(m.range, y, mo, d, baseScore = if (is4Digit) 54 else 48, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value)
+                evaluateAndAdd(m.range, y, mo, d, baseScore = if (is4Digit) 55 else 48, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value)
             }
 
-            // 5. Compact with explicit cue: "SCAD 150826" or "EXP 15082026"
+            // 4. Mixed separators or spaces ("18 11 2026", "18.11 26", "18 11.2027")
+            for (m in mixedSpaceDmyRegex.findAll(text)) {
+                if (overlapsCovered(m.range)) continue
+                val d = parseIntOcr(m.groupValues[1])
+                val mo = parseIntOcr(m.groupValues[2])?.minus(1)
+                val yearRaw = m.groupValues[3]
+                val y = parseYear(yearRaw, allowTwoDigit = true)
+                val is4Digit = normalizeDigits(yearRaw)?.length == 4
+                evaluateAndAdd(m.range, y, mo, d, baseScore = if (is4Digit) 50 else 44, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value)
+            }
+
+            // 5. Compact with same-line cue: "SCAD 150826" or "EXP 15082026"
             for (m in compactCueRegex.findAll(text)) {
                 if (overlapsCovered(m.range)) continue
-                val d = m.groupValues[1].toIntOrNull()
-                val mo = m.groupValues[2].toIntOrNull()?.minus(1)
+                val d = parseIntOcr(m.groupValues[1])
+                val mo = parseIntOcr(m.groupValues[2])?.minus(1)
                 val yearRaw = m.groupValues[3]
-                val y = parseYearStrict(yearRaw)
-                val is4Digit = yearRaw.length == 4
-                evaluateAndAdd(m.range, y, mo, d, baseScore = 48, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value)
+                val y = parseYear(yearRaw, allowTwoDigit = true)
+                val is4Digit = normalizeDigits(yearRaw)?.length == 4
+                evaluateAndAdd(m.range, y, mo, d, baseScore = 48, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value, forceKeywordCue = true)
             }
 
-            // 6. Textual month-year: "OTT 2026", "NOV 26" -> end of month
+            // 6. Compact 6/8 digits on its own line when context cue is present (e.g. "Da consumarsi entro:\n18112027")
+            if (hasKeywordCue) {
+                for (m in bareCompactDmyRegex.findAll(text)) {
+                    if (overlapsCovered(m.range)) continue
+                    val d = m.groupValues[1].toIntOrNull()
+                    val mo = m.groupValues[2].toIntOrNull()?.minus(1)
+                    val yearRaw = m.groupValues[3]
+                    val y = parseYearStrict(yearRaw)
+                    val is4Digit = yearRaw.length == 4
+                    evaluateAndAdd(m.range, y, mo, d, baseScore = 44, isFourDigitFullDate = is4Digit, useEndOfMonth = false, m.value)
+                }
+            }
+
+            // 7. Textual month-year: "OTT 2026", "NOV 26" -> end of month
             for (m in textualMyRegex.findAll(text)) {
                 if (overlapsCovered(m.range)) continue
                 val mo = monthMap[m.groupValues[1].uppercase(Locale.ITALY)]
                 val yearRaw = m.groupValues[2]
                 val y = parseYear(yearRaw, allowTwoDigit = true)
                 val is4Digit = normalizeDigits(yearRaw)?.length == 4
-                evaluateAndAdd(m.range, y, mo, day = null, baseScore = if (is4Digit) 42 else 36, isFourDigitFullDate = false, useEndOfMonth = true, m.value)
+                evaluateAndAdd(m.range, y, mo, day = null, baseScore = if (is4Digit) 44 else 38, isFourDigitFullDate = false, useEndOfMonth = true, m.value)
             }
 
-            // 7. Numeric MM/YYYY or MM/YY -> end of month
+            // 8. Numeric MM/YYYY or MM/YY -> end of month
             for (m in sepMyRegex.findAll(text)) {
                 if (overlapsCovered(m.range)) continue
                 val mo = parseIntOcr(m.groupValues[1])?.minus(1)
                 val yearRaw = m.groupValues[2]
                 val y = parseYear(yearRaw, allowTwoDigit = true)
                 val is4Digit = normalizeDigits(yearRaw)?.length == 4
-                evaluateAndAdd(m.range, y, mo, day = null, baseScore = if (is4Digit) 38 else 32, isFourDigitFullDate = false, useEndOfMonth = true, m.value)
+                evaluateAndAdd(m.range, y, mo, day = null, baseScore = if (is4Digit) 40 else 34, isFourDigitFullDate = false, useEndOfMonth = true, m.value)
+            }
+
+            // 9. Space-separated MM YYYY ("TMC 08 2027") when explicit expiry cue is present
+            if (hasKeywordCue) {
+                for (m in spaceMyRegex.findAll(text)) {
+                    if (overlapsCovered(m.range)) continue
+                    val mo = parseIntOcr(m.groupValues[1])?.minus(1)
+                    val yearRaw = m.groupValues[2]
+                    val y = parseYear(yearRaw, allowTwoDigit = true)
+                    val is4Digit = normalizeDigits(yearRaw)?.length == 4
+                    evaluateAndAdd(m.range, y, mo, day = null, baseScore = if (is4Digit) 38 else 32, isFourDigitFullDate = false, useEndOfMonth = true, m.value)
+                }
             }
         }
 
@@ -259,8 +296,8 @@ object ExpiryDateOcrParser {
         for (ch in raw) {
             val mapped = when (ch) {
                 in '0'..'9' -> ch
-                'O', 'o' -> '0'
-                'I', 'l' -> '1'
+                'O', 'o', 'D', 'Q' -> '0'
+                'I', 'l', '|', 'i' -> '1'
                 'Z', 'z' -> '2'
                 'S', 's' -> '5'
                 'B' -> '8'
@@ -318,7 +355,7 @@ object ExpiryDateOcrParser {
 
 class OcrDateConsensusTracker(
     private val maxWindowSize: Int = 8,
-    private val windowMillis: Long = 2500L
+    private val windowMillis: Long = 5000L
 ) {
     private data class Observation(
         val match: OcrExpiryMatch,
@@ -341,7 +378,7 @@ class OcrDateConsensusTracker(
         }
 
         val matchingDate = observations.filter { it.match.expiryDateMillis == match.expiryDateMillis }
-        val requiredHits = if (matchingDate.any { it.match.hasKeywordCue || (it.match.isFourDigitFullDate && it.match.confidence >= 60) }) {
+        val requiredHits = if (matchingDate.any { it.match.hasKeywordCue || it.match.isFourDigitFullDate || it.match.confidence >= 55 }) {
             2
         } else {
             3
