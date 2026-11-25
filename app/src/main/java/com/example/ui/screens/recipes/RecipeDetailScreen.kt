@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -134,12 +136,18 @@ fun RecipeDetailScreen(
             !recipe.imagePath.isNullOrBlank() && File(recipe.imagePath).exists()
         }
 
+        Box(
+            contentAlignment = Alignment.TopCenter,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
         LazyColumn(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
+                .widthIn(max = 760.dp)
                 .fillMaxSize()
-                .padding(innerPadding)
         ) {
             item {
                 Box(
@@ -196,21 +204,33 @@ fun RecipeDetailScreen(
                                     recipeName = recipe.name
                                 )
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 48.dp)
                         ) {
                             Icon(Icons.Default.AddShoppingCart, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Aggiungi ${eval.missingIngredients.size} mancanti alla spesa")
+                            Text(
+                                text = "Aggiungi ${eval.missingIngredients.size} mancanti alla spesa",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                     if (eval.details.any { it.availableQuantity > 0.0 && it.productId != null }) {
                         OutlinedButton(
                             onClick = { viewModel.cookRecipeConsumeIngredients(item) },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 48.dp)
                         ) {
                             Icon(Icons.Default.RemoveCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Prepara ricetta (scarica ingredienti FEFO)")
+                            Text(
+                                text = "Prepara ricetta (scarica FEFO)",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -254,6 +274,7 @@ fun RecipeDetailScreen(
                             )
                         }
                         if (ing.usesExpiringSoon) {
+                            Spacer(modifier = Modifier.width(8.dp))
                             Surface(
                                 color = semantics.warningContainer,
                                 shape = RoundedCornerShape(50)
@@ -294,6 +315,7 @@ fun RecipeDetailScreen(
             }
 
             item { Spacer(modifier = Modifier.height(24.dp)) }
+        }
         }
     }
 

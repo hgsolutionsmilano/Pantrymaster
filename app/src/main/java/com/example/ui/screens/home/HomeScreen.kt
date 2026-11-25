@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -132,11 +134,17 @@ fun HomeScreen(
             return
         }
 
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        Box(
+            contentAlignment = Alignment.TopCenter,
             modifier = Modifier.fillMaxSize()
         ) {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .widthIn(max = 960.dp)
+                    .fillMaxSize()
+            ) {
             // Editorial Hero & Quick Actions
             item {
                 Card(
@@ -190,8 +198,10 @@ fun HomeScreen(
                             ) {
                                 Button(
                                     onClick = onOpenScanner,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                                     modifier = Modifier
                                         .weight(1f)
+                                        .defaultMinSize(minHeight = 48.dp)
                                         .testTag("home_scan_button")
                                 ) {
                                     Icon(
@@ -200,12 +210,19 @@ fun HomeScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Scansiona", maxLines = 1)
+                                    Text(
+                                        text = "Scansiona",
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                                 FilledTonalButton(
                                     onClick = onAddProduct,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                                     modifier = Modifier
                                         .weight(1f)
+                                        .defaultMinSize(minHeight = 48.dp)
                                         .testTag("home_add_product_button")
                                 ) {
                                     Icon(
@@ -214,7 +231,12 @@ fun HomeScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Aggiungi", maxLines = 1)
+                                    Text(
+                                        text = "Aggiungi",
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                             }
                         }
@@ -418,6 +440,7 @@ fun HomeScreen(
 
             item { Spacer(modifier = Modifier.height(16.dp)) }
         }
+        }
     }
 }
 
@@ -476,11 +499,14 @@ private fun SectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
         )
         if (actionLabel != null && onAction != null) {
             TextButton(onClick = onAction) {
-                Text(actionLabel)
+                Text(actionLabel, maxLines = 1, softWrap = false)
             }
         }
     }
@@ -527,14 +553,16 @@ private fun ConsumeFirstBatchCard(
                     Text(
                         text = UnitConverter.formatQuantity(item.batch.remainingQuantity, item.batch.unit),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
                     )
                     Text(
                         text = "• ${item.location?.name ?: "Dispensa"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -546,8 +574,10 @@ private fun ConsumeFirstBatchCard(
             Spacer(modifier = Modifier.width(8.dp))
             OutlinedButton(
                 onClick = onConsumeOne,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                modifier = Modifier.testTag("consume_quick_${item.batch.id}")
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .testTag("consume_quick_${item.batch.id}")
             ) {
                 Icon(
                     Icons.Default.CheckCircleOutline,
@@ -555,7 +585,12 @@ private fun ConsumeFirstBatchCard(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Usa", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    text = "Usa",
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
     }
@@ -579,7 +614,10 @@ private fun ShoppingSummaryCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(
                         Icons.Default.ShoppingCart,
                         contentDescription = null,
@@ -589,9 +627,12 @@ private fun ShoppingSummaryCard(
                     Text(
                         text = "Lista della spesa",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primaryContainer
@@ -630,10 +671,12 @@ private fun ShoppingSummaryCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = UnitConverter.formatQuantity(item.quantity, item.unit),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
                         )
                     }
                 }
@@ -715,11 +758,13 @@ private fun RecentProductsCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = UnitConverter.formatQuantity(p.totalAvailableQuantity, p.product.unit),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1
                         )
                     }
                 }

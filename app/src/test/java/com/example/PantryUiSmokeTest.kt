@@ -1,16 +1,33 @@
 package com.example
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.dp
+import com.example.data.local.entity.CategoryEntity
+import com.example.data.local.entity.ProductBatchEntity
+import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.StorageLocationEntity
+import com.example.data.local.relation.ProductWithDetails
+import com.example.domain.model.ExpiryType
 import com.example.domain.model.LocationType
+import com.example.domain.model.UnitOfMeasure
 import com.example.ui.components.LocationSelectorRow
 import com.example.ui.components.PantryFlowRow
+import com.example.ui.screens.pantry.BatchCard
+import com.example.ui.screens.pantry.ProductHeaderSummaryCard
+import com.example.ui.theme.PantryMasterTheme
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,4 +71,86 @@ class PantryUiSmokeTest {
         composeRule.onNodeWithText("Dispensa").assertIsDisplayed()
         composeRule.onNodeWithText("Frigorifero").assertIsDisplayed()
     }
+
+    @Test
+    fun productDetail_consumeButtons_remainHorizontalAndProportionalOnCompactPhone() {
+        val now = System.currentTimeMillis()
+        val product = ProductEntity(
+            id = "p1",
+            name = "Latte Fresco Intero Alta Qualità",
+            brand = "Fattoria Verde",
+            categoryId = "cat1",
+            defaultLocationId = "loc2",
+            unit = UnitOfMeasure.LITERS,
+            minStockQuantity = 2.0
+        )
+        val batch = ProductBatchEntity(
+            id = "b1",
+            productId = "p1",
+            locationId = "loc2",
+            initialQuantity = 2.0,
+            remainingQuantity = 1.5,
+            unit = UnitOfMeasure.LITERS,
+            purchaseDate = now - 86_400_000L,
+            expiryDate = now - 3 * 86_400_000L,
+            expiryType = ExpiryType.BEST_BEFORE
+        )
+        val details = ProductWithDetails(
+            product = product,
+            category = CategoryEntity("cat1", "Latticini", "egg", "#3E7B52", true),
+            defaultLocation = StorageLocationEntity("loc2", "Frigorifero Principale", LocationType.FRIDGE, "kitchen", 2),
+            images = emptyList(),
+            batches = listOf(batch)
+        )
+
+        composeRule.setContent {
+            PantryMasterTheme {
+                Box(
+                    modifier = Modifier
+                        .width(360.dp)
+                        .padding(16.dp)
+                ) {
+                    Column {
+                        ProductHeaderSummaryCard(
+                            details = details,
+                            onAddBatch = {},
+                            onConsumeFefo = {}
+                        )
+                        BatchCard(
+                            batch = batch,
+                            locationName = "Frigorifero Principale",
+                            onConsume = {},
+                            onWaste = {},
+                            onAdjust = {},
+                            onTransfer = {},
+                            onEditDates = {},
+                            onCancel = {}
+                        )
+                    }
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("detail_add_batch_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("detail_consume_fefo_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("batch_consume_b1").assertIsDisplayed()
+
+        val addBounds = composeRule.onNodeWithTag("detail_add_batch_button").getUnclippedBoundsInRoot()
+        val fefoBounds = composeRule.onNodeWithTag("detail_consume_fefo_button").getUnclippedBoundsInRoot()
+        val batchConsumeBounds = composeRule.onNodeWithTag("batch_consume_b1").getUnclippedBoundsInRoot()
+
+        val addW = (addBounds.right - addBounds.left).value
+        val addH = (addBounds.bottom - addBounds.top).value
+        val fefoW = (fefoBounds.right - fefoBounds.left).value
+        val fefoH = (fefoBounds.bottom - fefoBounds.top).value
+        val batchW = (batchConsumeBounds.right - batchConsumeBounds.left).value
+        val batchH = (batchConsumeBounds.bottom - batchConsumeBounds.top).value
+
+        assertTrue("Add batch button must be wider than tall ($addW x $addH)", addW > addH)
+        assertTrue("Consuma FEFO button must be wider than tall ($fefoW x $fefoH)", fefoW > fefoH)
+        assertTrue("Consuma FEFO height must stay compact ($fefoH)", fefoH <= 64f)
+        assertTrue("Batch Consuma button must be wider than tall ($batchW x $batchH)", batchW > batchH)
+        assertTrue("Batch Consuma height must stay compact ($batchH)", batchH <= 64f)
+    }
 }
+

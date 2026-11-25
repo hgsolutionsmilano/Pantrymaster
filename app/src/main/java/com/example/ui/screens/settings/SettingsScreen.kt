@@ -11,15 +11,20 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -73,6 +78,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -179,11 +185,18 @@ fun SettingsScreen(
             )
         }
     ) { innerPadding ->
-        Column(
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+        Box(
+            contentAlignment = Alignment.TopCenter,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
+        ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .widthIn(max = 720.dp)
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
@@ -244,9 +257,15 @@ fun SettingsScreen(
                         )
                         OutlinedButton(
                             onClick = { viewModel.saveHomeTitle(homeTitleDraft) },
-                            modifier = Modifier.testTag("save_home_title_button")
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp)
+                                .testTag("save_home_title_button")
                         ) {
-                            Text(stringResource(R.string.settings_home_title_save))
+                            Text(
+                                text = stringResource(R.string.settings_home_title_save),
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
@@ -334,7 +353,7 @@ fun SettingsScreen(
                                         color = MaterialTheme.colorScheme.onErrorContainer
                                     )
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                PantryFlowRow(horizontalSpacing = 8.dp, verticalSpacing = 6.dp) {
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                         ContextCompat.checkSelfPermission(
                                             context,
@@ -346,16 +365,20 @@ fun SettingsScreen(
                                                 pendingManualExpiryCheck = false
                                                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                             },
-                                            modifier = Modifier.testTag("grant_notifications_button")
+                                            modifier = Modifier
+                                                .defaultMinSize(minHeight = 48.dp)
+                                                .testTag("grant_notifications_button")
                                         ) {
-                                            Text("Concedi permesso")
+                                            Text("Concedi permesso", maxLines = 1, softWrap = false)
                                         }
                                     }
                                     OutlinedButton(
                                         onClick = { openAppNotificationSettings(context) },
-                                        modifier = Modifier.testTag("open_notification_settings_button")
+                                        modifier = Modifier
+                                            .defaultMinSize(minHeight = 48.dp)
+                                            .testTag("open_notification_settings_button")
                                     ) {
-                                        Text("Impostazioni Android")
+                                        Text("Impostazioni Android", maxLines = 1, softWrap = false)
                                     }
                                 }
                             }
@@ -500,19 +523,35 @@ fun SettingsScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(
                             onClick = { createJsonLauncher.launch("pantrymaster_export.json") },
-                            modifier = Modifier.weight(1f)
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 48.dp)
                         ) {
                             Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Esporta JSON")
+                            Text(
+                                text = "Esporta JSON",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                         OutlinedButton(
                             onClick = { openJsonLauncher.launch(arrayOf("application/json")) },
-                            modifier = Modifier.weight(1f)
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 48.dp)
                         ) {
                             Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Importa JSON")
+                            Text(
+                                text = "Importa JSON",
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -579,9 +618,11 @@ fun SettingsScreen(
                         )
                         OutlinedButton(
                             onClick = { viewModel.saveGithubRepository(repoDraft) },
-                            modifier = Modifier.testTag("save_github_repo_button")
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp)
+                                .testTag("save_github_repo_button")
                         ) {
-                            Text("Salva")
+                            Text("Salva", maxLines = 1, softWrap = false)
                         }
                     }
 
@@ -699,6 +740,7 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+        }
         }
     }
 }

@@ -53,8 +53,9 @@ fun MonthlyTrendBarChart(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        PantryFlowRow(
+            horizontalSpacing = 16.dp,
+            verticalSpacing = 6.dp,
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
             ChartLegendDot(color = purchasedColor, label = "Acquistati")

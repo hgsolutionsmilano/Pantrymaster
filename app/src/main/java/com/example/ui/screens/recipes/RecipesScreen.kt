@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -62,6 +64,7 @@ import com.example.R
 import com.example.data.repository.EvaluatedRecipe
 import com.example.domain.usecase.RecipeFeasibility
 import com.example.ui.components.PantryEmptyState
+import com.example.ui.components.PantryFlowRow
 import com.example.ui.theme.LocalPantryColors
 import java.io.File
 
@@ -99,10 +102,17 @@ fun RecipesScreen(
             }
         }
     ) { innerPadding ->
-        Column(
+        Box(
+            contentAlignment = Alignment.TopCenter,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
+        ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 1040.dp)
+                .fillMaxSize()
         ) {
             OutlinedTextField(
                 value = state.searchQuery,
@@ -177,6 +187,7 @@ fun RecipesScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -222,10 +233,12 @@ private fun RecipeCard(
                     )
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                PantryFlowRow(
+                    horizontalSpacing = 6.dp,
+                    verticalSpacing = 6.dp,
                     modifier = Modifier
                         .align(Alignment.TopStart)
+                        .fillMaxWidth()
                         .padding(10.dp)
                 ) {
                     val (bg, fg, label) = when (eval.feasibility) {
@@ -294,7 +307,10 @@ private fun RecipeCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             Icons.Default.Schedule,
                             contentDescription = null,
@@ -305,14 +321,18 @@ private fun RecipeCard(
                         Text(
                             text = "${recipe.prepTimeMinutes} min • ${recipe.difficulty.labelIt} • ${recipe.servings} porz.",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "${eval.availabilityPercent}%",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
                     )
                 }
                 Spacer(modifier = Modifier.height(6.dp))

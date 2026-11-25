@@ -6,17 +6,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddShoppingCart
@@ -77,6 +82,7 @@ import com.example.ui.components.ConfirmDangerDialog
 import com.example.ui.components.LocationSelectorRow
 import com.example.ui.components.PantryDatePickerModal
 import com.example.ui.components.PantryEmptyState
+import com.example.ui.components.PantryFlowRow
 import com.example.ui.components.UnitDropdownField
 import com.example.ui.theme.LocalPantryColors
 
@@ -155,10 +161,17 @@ fun ShoppingScreen(
             return@Scaffold
         }
 
-        Column(
+        Box(
+            contentAlignment = Alignment.TopCenter,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
+        ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 760.dp)
+                .fillMaxSize()
         ) {
             // Multiple lists selector
             if (state.lists.isNotEmpty()) {
@@ -226,11 +239,13 @@ fun ShoppingScreen(
                                             style = MaterialTheme.typography.bodySmall
                                         )
                                     }
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Button(
                                         onClick = { viewModel.addLowStockSuggestions(activeList.list.id) },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                                     ) {
-                                        Text("Aggiungi")
+                                        Text("Aggiungi", maxLines = 1, softWrap = false)
                                     }
                                 }
                             }
@@ -325,6 +340,7 @@ fun ShoppingScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -480,12 +496,17 @@ private fun ShoppingItemCard(
                         onClick = onMoveToPantry,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .defaultMinSize(minHeight = 48.dp)
                             .padding(horizontal = 8.dp)
                             .testTag("move_to_pantry_${item.id}")
                     ) {
                         Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Inserisci in dispensa (nuovo lotto)")
+                        Text(
+                            text = "Carica in dispensa",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -510,7 +531,12 @@ private fun AddShoppingItemDialog(
         onDismissRequest = onDismiss,
         title = { Text("Nuovo articolo da acquistare") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -587,7 +613,12 @@ private fun ConfirmAddToPantryDialog(
         onDismissRequest = onDismiss,
         title = { Text("Inserisci \"${item.name}\" in dispensa") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+            ) {
                 Text(
                     text = "Verrà creato un nuovo lotto di ${UnitConverter.formatQuantity(item.quantity, item.unit)}.",
                     style = MaterialTheme.typography.bodySmall
@@ -600,9 +631,13 @@ private fun ConfirmAddToPantryDialog(
                 OutlinedButton(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(expiryDate?.let { "Scadenza: ${PantryDateUtils.formatDate(it)}" } ?: "Imposta data scadenza")
+                    Text(
+                        text = expiryDate?.let { "Scadenza: ${PantryDateUtils.formatDate(it)}" } ?: "Imposta data scadenza",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PantryFlowRow(horizontalSpacing = 8.dp, verticalSpacing = 6.dp) {
                     ExpiryType.entries.forEach { t ->
                         FilterChip(
                             selected = expiryType == t,

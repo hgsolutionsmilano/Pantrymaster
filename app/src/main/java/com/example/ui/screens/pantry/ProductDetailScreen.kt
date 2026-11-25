@@ -6,16 +6,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -33,6 +38,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -66,6 +72,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.entity.ProductBatchEntity
 import com.example.data.local.entity.StorageLocationEntity
 import com.example.data.local.relation.MovementWithProduct
+import com.example.data.local.relation.ProductWithDetails
 import com.example.domain.model.ExpiryType
 import com.example.domain.usecase.PantryDateUtils
 import com.example.domain.usecase.UnitConverter
@@ -73,6 +80,7 @@ import com.example.ui.components.ConfirmDangerDialog
 import com.example.ui.components.ExpiryBadge
 import com.example.ui.components.LocationSelectorRow
 import com.example.ui.components.PantryDatePickerModal
+import com.example.ui.components.PantryFlowRow
 import com.example.ui.components.ProductThumbnail
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -172,128 +180,27 @@ fun ProductDetailScreen(
             pantryState.locations.associateBy { it.id }
         }
 
-        LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+        Box(
+            contentAlignment = Alignment.TopCenter,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Product Header Summary Card
-            item {
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            ProductThumbnail(
-                                imagePath = details.primaryImagePath,
-                                categoryIcon = details.category?.iconName ?: "category",
-                                categoryColorHex = details.category?.colorHex,
-                                productName = details.product.name,
-                                size = 72.dp
-                            )
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = details.product.name,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (details.product.brand.isNotBlank()) {
-                                    Text(
-                                        text = details.product.brand,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "${details.category?.name ?: "Altro"} • ${details.defaultLocation?.name ?: "Dispensa"}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                details.product.barcode?.let { code ->
-                                    Text(
-                                        text = "Barcode: $code",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-
-                        if (details.product.description.isNotBlank() || details.product.notes.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            if (details.product.description.isNotBlank()) {
-                                Text(
-                                    text = details.product.description,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                            if (details.product.notes.isNotBlank()) {
-                                Text(
-                                    text = "Note: ${details.product.notes}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Disponibilità totale",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = UnitConverter.formatQuantity(
-                                        details.totalAvailableQuantity,
-                                        details.product.unit
-                                    ),
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                if (details.product.minStockQuantity > 0.0) {
-                                    Text(
-                                        text = "Scorta min: ${UnitConverter.formatQuantity(details.product.minStockQuantity, details.product.unit)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(
-                                    onClick = { showAddBatchDialog = true },
-                                    modifier = Modifier.testTag("detail_add_batch_button")
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Lotto")
-                                }
-                                Button(
-                                    onClick = { showFefoConsumeDialog = true },
-                                    enabled = details.totalAvailableQuantity > 0.0,
-                                    modifier = Modifier.testTag("detail_consume_fefo_button")
-                                ) {
-                                    Icon(Icons.Default.RemoveCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Consuma FEFO")
-                                }
-                            }
-                        }
-                    }
+            LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .widthIn(max = 760.dp)
+                    .fillMaxSize()
+            ) {
+                // Product Header Summary Card
+                item {
+                    ProductHeaderSummaryCard(
+                        details = details,
+                        onAddBatch = { showAddBatchDialog = true },
+                        onConsumeFefo = { showFefoConsumeDialog = true }
+                    )
                 }
-            }
 
             // Active Batches Section
             item {
@@ -408,6 +315,7 @@ fun ProductDetailScreen(
                 items(movements.take(15), key = { it.movement.id }) { mv ->
                     MovementRowCard(mv)
                 }
+            }
             }
         }
     }
@@ -526,7 +434,160 @@ fun ProductDetailScreen(
 }
 
 @Composable
-private fun BatchCard(
+internal fun ProductHeaderSummaryCard(
+    details: ProductWithDetails,
+    onAddBatch: () -> Unit,
+    onConsumeFefo: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ProductThumbnail(
+                    imagePath = details.primaryImagePath,
+                    categoryIcon = details.category?.iconName ?: "category",
+                    categoryColorHex = details.category?.colorHex,
+                    productName = details.product.name,
+                    size = 72.dp
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = details.product.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (details.product.brand.isNotBlank()) {
+                        Text(
+                            text = details.product.brand,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "${details.category?.name ?: "Altro"} • ${details.defaultLocation?.name ?: "Dispensa"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    details.product.barcode?.let { code ->
+                        Text(
+                            text = "Barcode: $code",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            if (details.product.description.isNotBlank() || details.product.notes.isNotBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                if (details.product.description.isNotBlank()) {
+                    Text(
+                        text = details.product.description,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                if (details.product.notes.isNotBlank()) {
+                    Text(
+                        text = "Note: ${details.product.notes}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Disponibilità totale",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = UnitConverter.formatQuantity(
+                            details.totalAvailableQuantity,
+                            details.product.unit
+                        ),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (details.product.minStockQuantity > 0.0) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Text(
+                            text = "Scorta min: ${UnitConverter.formatQuantity(details.product.minStockQuantity, details.product.unit)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedButton(
+                    onClick = onAddBatch,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = 48.dp)
+                        .testTag("detail_add_batch_button")
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Nuovo lotto",
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Button(
+                    onClick = onConsumeFefo,
+                    enabled = details.totalAvailableQuantity > 0.0,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = 48.dp)
+                        .testTag("detail_consume_fefo_button")
+                ) {
+                    Icon(Icons.Default.RemoveCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Consuma FEFO",
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun BatchCard(
     batch: ProductBatchEntity,
     locationName: String,
     onConsume: () -> Unit,
@@ -612,12 +673,12 @@ private fun BatchCard(
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                PantryFlowRow(
+                    horizontalSpacing = 8.dp,
+                    verticalSpacing = 4.dp,
+                    modifier = Modifier.weight(1f)
                 ) {
                     ExpiryBadge(
                         expiryDateMillis = batch.expiryDate,
@@ -627,15 +688,30 @@ private fun BatchCard(
                         Text(
                             text = batch.expiryType.shortLabel + " " + PantryDateUtils.formatDate(batch.expiryDate),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
                 }
-                TextButton(onClick = onConsume) {
-                    Text("Consuma")
+                Spacer(modifier = Modifier.width(8.dp))
+                FilledTonalButton(
+                    onClick = onConsume,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .testTag("batch_consume_${batch.id}")
+                ) {
+                    Text(
+                        text = "Consuma",
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
             if (batch.notes.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = batch.notes,
                     style = MaterialTheme.typography.labelSmall,
@@ -716,7 +792,12 @@ private fun AddBatchDialog(
         onDismissRequest = onDismiss,
         title = { Text("Nuovo lotto (${defaultUnit.symbol})") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+            ) {
                 OutlinedTextField(
                     value = qtyText,
                     onValueChange = { qtyText = it },
@@ -733,10 +814,12 @@ private fun AddBatchDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = expiryDate?.let { "Scadenza: ${PantryDateUtils.formatDate(it)}" }
-                            ?: "Imposta data di scadenza"
+                            ?: "Imposta data di scadenza",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PantryFlowRow(horizontalSpacing = 8.dp, verticalSpacing = 6.dp) {
                     ExpiryType.entries.forEach { t ->
                         FilterChip(
                             selected = expiryType == t,
@@ -750,7 +833,11 @@ private fun AddBatchDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Registra come acquisto", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "Registra come acquisto",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
                     Switch(checked = isPurchase, onCheckedChange = { isPurchase = it })
                 }
                 LocationSelectorRow(
@@ -814,7 +901,12 @@ private fun QuantityInputDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+            ) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
@@ -854,11 +946,13 @@ private fun TransferBatchDialog(
         onDismissRequest = onDismiss,
         title = { Text("Trasferisci posizione") },
         text = {
-            LocationSelectorRow(
-                locations = locations,
-                selectedLocationId = selectedId,
-                onLocationSelected = { selectedId = it }
-            )
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                LocationSelectorRow(
+                    locations = locations,
+                    selectedLocationId = selectedId,
+                    onLocationSelected = { selectedId = it }
+                )
+            }
         },
         confirmButton = {
             Button(onClick = { onConfirm(selectedId) }) { Text("Trasferisci") }
@@ -884,16 +978,25 @@ private fun EditBatchDatesDialog(
         onDismissRequest = onDismiss,
         title = { Text("Modifica lotto") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+            ) {
                 OutlinedButton(
                     onClick = { showPicker = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(expiryDate?.let { PantryDateUtils.formatDate(it) } ?: "Nessuna scadenza")
+                    Text(
+                        text = expiryDate?.let { PantryDateUtils.formatDate(it) } ?: "Nessuna scadenza",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PantryFlowRow(horizontalSpacing = 8.dp, verticalSpacing = 6.dp) {
                     ExpiryType.entries.forEach { t ->
                         FilterChip(
                             selected = expiryType == t,

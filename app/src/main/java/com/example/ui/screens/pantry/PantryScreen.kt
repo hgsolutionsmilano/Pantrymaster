@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -63,6 +65,7 @@ import com.example.domain.model.PantrySortOption
 import com.example.domain.usecase.UnitConverter
 import com.example.ui.components.ExpiryBadge
 import com.example.ui.components.PantryEmptyState
+import com.example.ui.components.PantryFlowRow
 import com.example.ui.components.ProductThumbnail
 import com.example.ui.components.iconForLocationType
 
@@ -146,10 +149,17 @@ fun PantryScreen(
             }
         }
     ) { innerPadding ->
-        Column(
+        Box(
+            contentAlignment = Alignment.TopCenter,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
+        ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 980.dp)
+                .fillMaxSize()
         ) {
             // Search Bar
             OutlinedTextField(
@@ -279,6 +289,7 @@ fun PantryScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -333,9 +344,9 @@ private fun ProductListCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                PantryFlowRow(
+                    horizontalSpacing = 8.dp,
+                    verticalSpacing = 4.dp
                 ) {
                     if (earliestBatch != null) {
                         ExpiryBadge(
@@ -351,16 +362,23 @@ private fun ProductListCard(
                     Text(
                         text = "${activeBatches.size} lotti",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
             }
             Spacer(modifier = Modifier.width(10.dp))
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                modifier = Modifier.widthIn(max = 110.dp)
+            ) {
                 Text(
                     text = UnitConverter.formatQuantity(totalQty, item.product.unit),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = if (totalQty <= item.product.minStockQuantity && item.product.minStockQuantity > 0) {
                         MaterialTheme.colorScheme.error
                     } else {
@@ -370,7 +388,9 @@ private fun ProductListCard(
                 Text(
                     text = item.defaultLocation?.name ?: "Dispensa",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -407,10 +427,13 @@ private fun ProductGridCard(
                     productName = item.product.name,
                     size = 46.dp
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = UnitConverter.formatQuantity(totalQty, item.product.unit),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.primary
                 )
             }

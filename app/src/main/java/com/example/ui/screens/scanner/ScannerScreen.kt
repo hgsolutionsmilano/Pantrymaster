@@ -18,12 +18,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -81,6 +84,7 @@ import com.example.domain.model.ExpiryType
 import com.example.domain.usecase.PantryDateUtils
 import com.example.ui.components.LocationSelectorRow
 import com.example.ui.components.PantryDatePickerModal
+import com.example.ui.components.PantryFlowRow
 import com.example.ui.components.ProductThumbnail
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -158,6 +162,7 @@ fun ScannerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
         ) {
             when (val state = uiState) {
                 is ScannerUiState.Scanning -> {
@@ -439,9 +444,14 @@ private fun ScannerResultContent(
     onManualCreate: (String) -> Unit,
     onRescan: () -> Unit
 ) {
+    Box(
+        contentAlignment = Alignment.TopCenter,
+        modifier = Modifier.fillMaxSize()
+    ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier
+            .widthIn(max = 720.dp)
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
@@ -502,7 +512,7 @@ private fun ScannerResultContent(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(expiryDate?.let { "Scadenza: ${PantryDateUtils.formatDate(it)}" } ?: "Imposta data scadenza")
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PantryFlowRow(horizontalSpacing = 8.dp, verticalSpacing = 6.dp) {
                     ExpiryType.entries.forEach { t ->
                         FilterChip(
                             selected = expiryType == t,
@@ -656,9 +666,12 @@ private fun ScannerResultContent(
 
         OutlinedButton(
             onClick = onRescan,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp)
         ) {
             Text("Scansiona un altro codice")
         }
+    }
     }
 }
