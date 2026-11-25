@@ -22,6 +22,8 @@ import com.example.domain.model.UnitOfMeasure
 import com.example.domain.usecase.BatchAllocationInput
 import com.example.domain.usecase.FefoConsumptionCalculator
 import com.example.domain.usecase.PantryDateUtils
+import com.example.domain.usecase.ShelfLifeEstimate
+import com.example.domain.usecase.ShelfLifeEstimator
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import javax.inject.Inject
@@ -76,6 +78,9 @@ class PantryRepository @Inject constructor(
 
     suspend fun findProductByBarcode(barcode: String): ProductEntity? =
         productDao.getByBarcode(barcode.trim())
+
+    suspend fun estimateShelfLifeForProduct(productId: String): ShelfLifeEstimate? =
+        ShelfLifeEstimator.estimateFromBatches(batchDao.getBatchesWithValidShelfLife(productId))
 
     suspend fun saveProduct(
         product: ProductEntity,

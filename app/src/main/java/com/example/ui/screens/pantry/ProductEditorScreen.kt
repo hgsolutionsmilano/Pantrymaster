@@ -88,6 +88,8 @@ fun ProductEditorScreen(
     prefillDescription: String? = null,
     prefillUnitName: String? = null,
     prefillLocalImagePath: String? = null,
+    prefillExpiryDateMillis: Long? = null,
+    prefillExpiryTypeName: String? = null,
     onBack: () -> Unit,
     onSaved: (String) -> Unit,
     viewModel: PantryViewModel = hiltViewModel()
@@ -128,8 +130,13 @@ fun ProductEditorScreen(
     // Optional initial batch (only on creation)
     var addInitialBatch by remember { mutableStateOf(productId == null) }
     var initialQtyText by remember { mutableStateOf("1") }
-    var initialExpiryDate by remember { mutableStateOf<Long?>(null) }
-    var initialExpiryType by remember { mutableStateOf(ExpiryType.USE_BY) }
+    var initialExpiryDate by remember { mutableStateOf<Long?>(prefillExpiryDateMillis) }
+    var initialExpiryType by remember {
+        mutableStateOf(
+            prefillExpiryTypeName?.let { runCatching { ExpiryType.valueOf(it) }.getOrNull() }
+                ?: ExpiryType.USE_BY
+        )
+    }
     var showExpiryPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.isLoading, state.defaultUnit) {
@@ -538,6 +545,31 @@ fun ProductEditorScreen(
                                         .fillMaxWidth()
                                         .testTag("initial_batch_qty_input")
                                 )
+
+                                if (prefillExpiryDateMillis != null && initialExpiryDate == prefillExpiryDateMillis) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = "Data precompilata automaticamente dalla scansione",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                }
 
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,

@@ -31,7 +31,9 @@ data class ProductEditorRoute(
     val prefillCategoryId: String? = null,
     val prefillDescription: String? = null,
     val prefillUnitName: String? = null,
-    val prefillLocalImagePath: String? = null
+    val prefillLocalImagePath: String? = null,
+    val prefillExpiryDateMillis: Long? = null,
+    val prefillExpiryTypeName: String? = null
 ) : PantryDestination
 
 @Serializable

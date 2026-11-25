@@ -22,10 +22,16 @@ import com.example.data.local.relation.ProductWithDetails
 import com.example.domain.model.ExpiryType
 import com.example.domain.model.LocationType
 import com.example.domain.model.UnitOfMeasure
+import com.example.domain.usecase.PantryDateUtils
+import com.example.domain.usecase.ShelfLifeEstimate
 import com.example.ui.components.LocationSelectorRow
 import com.example.ui.components.PantryFlowRow
 import com.example.ui.screens.pantry.BatchCard
 import com.example.ui.screens.pantry.ProductHeaderSummaryCard
+import com.example.ui.screens.scanner.BarcodeLookupAsyncState
+import com.example.ui.screens.scanner.ExpiryCaptureBottomCard
+import com.example.ui.screens.scanner.OcrCaptureStatus
+import com.example.ui.screens.scanner.ScannerUiState
 import com.example.ui.theme.PantryMasterTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -151,6 +157,51 @@ class PantryUiSmokeTest {
         assertTrue("Consuma FEFO height must stay compact ($fefoH)", fefoH <= 64f)
         assertTrue("Batch Consuma button must be wider than tall ($batchW x $batchH)", batchW > batchH)
         assertTrue("Batch Consuma height must stay compact ($batchH)", batchH <= 64f)
+    }
+
+    @Test
+    fun scanner_ocrCaptureCard_displaysDetectedDateAndHistoricalFallback() {
+        val detectedMillis = PantryDateUtils.normalizeToUtcMidnight(2027, 4, 20)
+        val estimatedMillis = PantryDateUtils.normalizeToUtcMidnight(2026, 11, 10)
+        val state = ScannerUiState.CapturingExpiry(
+            barcode = "8076800195057",
+            lookupState = BarcodeLookupAsyncState.Ready(
+                result = com.example.data.repository.BarcodeLookupResult.NotFound("8076800195057"),
+                shelfLifeEstimate = ShelfLifeEstimate(
+                    averageDays = 15,
+                    sampleCount = 3,
+                    estimatedExpiryMillis = estimatedMillis,
+                    dominantExpiryType = ExpiryType.USE_BY
+                )
+            ),
+            ocrStatus = OcrCaptureStatus.Detected(
+                expiryDateMillis = detectedMillis,
+                expiryType = ExpiryType.BEST_BEFORE,
+                matchedText = "TMC 20/05/2027",
+                fromHistoricalEstimate = false
+            ),
+            isAutoCapturePaused = true
+        )
+
+        composeRule.setContent {
+            PantryMasterTheme {
+                ExpiryCaptureBottomCard(
+                    state = state,
+                    onConfirmDetected = {},
+                    onSelectExpiryType = {},
+                    onRetryOcr = {},
+                    onOpenManualPicker = {},
+                    onUseHistoricalEstimate = {},
+                    onSkip = {},
+                    onChangeBarcode = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("20/05/2027").assertIsDisplayed()
+        composeRule.onNodeWithTag("confirm_ocr_expiry_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("use_historical_estimate_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("ocr_retry_button").assertIsDisplayed()
     }
 }
 

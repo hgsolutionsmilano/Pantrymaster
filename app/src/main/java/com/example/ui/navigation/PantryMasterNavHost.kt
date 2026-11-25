@@ -275,6 +275,8 @@ fun PantryMasterNavHost(
                             prefillDescription = route.prefillDescription,
                             prefillUnitName = route.prefillUnitName,
                             prefillLocalImagePath = route.prefillLocalImagePath,
+                            prefillExpiryDateMillis = route.prefillExpiryDateMillis,
+                            prefillExpiryTypeName = route.prefillExpiryTypeName,
                             onBack = { navController.popBackStack() },
                             onSaved = { savedId ->
                                 if (navController.currentBackStackEntry?.destination?.hasRoute<ProductEditorRoute>() == true) {
@@ -290,11 +292,17 @@ fun PantryMasterNavHost(
                     composable<ScannerRoute> {
                         ScannerScreen(
                             onBack = { navController.popBackStack() },
-                            onManualCreate = { code ->
+                            onManualCreate = { code, expiryMillis, expiryType ->
                                 navController.popBackStack()
-                                navController.navigate(ProductEditorRoute(prefillBarcode = code))
+                                navController.navigate(
+                                    ProductEditorRoute(
+                                        prefillBarcode = code,
+                                        prefillExpiryDateMillis = expiryMillis,
+                                        prefillExpiryTypeName = expiryType?.name
+                                    )
+                                )
                             },
-                            onOpenRemotePrefill = { remote ->
+                            onOpenRemotePrefill = { remote, expiryMillis, expiryType ->
                                 navController.popBackStack()
                                 navController.navigate(
                                     ProductEditorRoute(
@@ -304,7 +312,9 @@ fun PantryMasterNavHost(
                                         prefillCategoryId = remote.suggestedCategoryId,
                                         prefillDescription = remote.description,
                                         prefillUnitName = remote.suggestedUnit.name,
-                                        prefillLocalImagePath = remote.localImagePath
+                                        prefillLocalImagePath = remote.localImagePath,
+                                        prefillExpiryDateMillis = expiryMillis,
+                                        prefillExpiryTypeName = expiryType?.name
                                     )
                                 )
                             },

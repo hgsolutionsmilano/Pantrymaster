@@ -57,6 +57,18 @@ interface ProductBatchDao {
     @Query("SELECT * FROM product_batches")
     suspend fun getAll(): List<ProductBatchEntity>
 
+    @Query(
+        """
+        SELECT * FROM product_batches
+        WHERE product_id = :productId
+          AND expiry_date IS NOT NULL
+          AND expiry_date > purchase_date
+        ORDER BY created_at DESC
+        LIMIT 20
+        """
+    )
+    suspend fun getBatchesWithValidShelfLife(productId: String): List<ProductBatchEntity>
+
     @Query("SELECT COALESCE(SUM(remaining_quantity), 0.0) FROM product_batches WHERE product_id = :productId AND is_exhausted = 0")
     suspend fun getAvailableQuantityForProduct(productId: String): Double
 
