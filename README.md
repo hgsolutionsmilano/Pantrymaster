@@ -5,39 +5,29 @@ Applicazione Android nativa **offline-first** per la gestione domestica di dispe
 ## Stack Tecnologico
 
 - **Linguaggio & UI**: Kotlin, Jetpack Compose, Material Design 3 adattivo (smartphone e tablet)
-- **Database**: Room (`12` entità relazionali con migrazioni esplicite `1→2→3`) + DataStore Preferences
+- **Database**: Room (`12` entità relazionali con migrazioni `1→2→3`) + DataStore Preferences
 - **Architettura**: MVVM + Repository Pattern + Hilt Dependency Injection
 - **Scanner & Rete**: CameraX + ML Kit Barcode Scanning & Text Recognition (OCR offline) + Retrofit/Moshi (Open Food Facts & GitHub Releases)
 - **Background**: WorkManager per promemoria scadenze (7/3/1/0 giorni) e controllo aggiornamenti
 
-## Versionamento Progressivo e Firma Release
+## Firma Release Permanente e Compilazione Locale (Windows)
 
-Le versioni base dell'app sono gestite tramite [`version.properties`](version.properties):
+Le chiavi private e le password di firma **non vengono mai salvate nel repository né su GitHub**.
+Tutte le operazioni di generazione chiave, backup cifrato AES-256, compilazione Release firmata (`APK`/`AAB`) e verifica crittografica (`apksigner`, `aapt2`) sono gestite localmente su Windows tramite:
 
-```properties
-VERSION_MAJOR=1
-VERSION_MINOR=0
-VERSION_PATCH=0
-VERSION_CODE=1
-GITHUB_REPO=
+```powershell
+powershell -ExecutionPolicy Bypass -File .\PantryMaster-Release-Manager.ps1
 ```
 
-Per tutta la procedura di conservazione del keystore, configurazione dei Secrets (`RELEASE_KEYSTORE_BASE64`, `STORE_PASSWORD`, `KEY_PASSWORD`, `DEBUG_KEYSTORE_BASE64`), verifica `apksigner`/`aapt2` e rilascio continuo consulta **[docs/SIGNING_AND_RELEASES.md](docs/SIGNING_AND_RELEASES.md)**.
+- Keystore permanente: `%LOCALAPPDATA%\PantryMaster\ReleaseSigning\my-upload-key.jks` (RSA 4096 bit, alias `upload`, validità 10.000 giorni).
+- Gradle (`app/build.gradle.kts`) valida keystore, alias e password tramite `verifyReleaseSigning` prima di ogni build Release e non effettua mai fallback sulla chiave Debug.
+- Per la guida completa su inizializzazione, backup su doppio supporto, ripristino e strategia di migrazione dalla `1.0.15`, consulta **[docs/SIGNING_AND_RELEASES.md](docs/SIGNING_AND_RELEASES.md)**.
 
-### Workflow GitHub Actions
+## GitHub Actions (Solo Controlli Codice e Test)
 
-1. **Release Progressiva (`.github/workflows/release.yml`)**
-   - Eseguibile manualmente da **Actions → Release Progressiva** (`patch`, `minor`, `major`), oppure tramite push di un tag `vX.Y.Z`.
-   - Richiede obbligatoriamente i Secrets Release (nessun fallback Debug), verifica dipendenze, compila Debug, esegue i test, compila e firma Release APK + AAB, verifica crittograficamente firma (`apksigner`) e manifest (`aapt2`), verifica la continuità del certificato rispetto alla release precedente, genera checksum `.sha256` e solo dopo aggiorna tag/release.
-
-2. **Android CI & Release (`.github/workflows/android-ci.yml`)**
-   - Su Pull Request e branch `develop`: verifica dipendenze, compilazione Debug e test unitari/Robolectric.
-   - Su `main`/`master` o avvio manuale: esegue tutte le verifiche CI + compilazione Release firmata, controllo `apksigner` / `aapt2` / continuità firma, checksum `.sha256` e pubblicazione GitHub Release.
+- `.github/workflows/android-ci.yml`: verifica assenza di segreti nel repo, controllo dipendenze, `assembleDebug`, compilazione Kotlin Release (`compileReleaseKotlin`) e test unitari/Robolectric (`testDebugUnitTest`).
+- `.github/workflows/release.yml`: controlli pre-release CI senza chiavi private né pubblicazione di APK firmati con chiavi temporanee o Debug.
 
 ## Modulo di Auto-Aggiornamento In-App
 
-PantryMaster scarica e installa gli aggiornamenti da **GitHub Releases** (`repos/{owner}/{repo}/releases/latest`) direttamente in-app tramite `PackageInstaller`:
-
-- Scaricamento in background dietro al popup di aggiornamento, controllo preventivo di `applicationId`, `versionCode` (no downgrade) e firma del certificato prima di proporre l'installazione.
-- In caso di certificato incompatibile (`SignatureMismatch`), l'app conserva l'APK scaricato, mostra entrambi gli SHA-256 (Debug/Release) e guida al backup completo `.zip` + salvataggio APK in Download senza perdita dati.
-- In **Impostazioni → Aggiornamenti e Versione** sono sempre visibili tipo di build (`Debug`/`Release`) e impronta `SHA-256` copiabile.
+PantryMaster verifica le nuove release su GitHub (`hgsolutionsmilano/Pantrymaster`), scarica l'APK in background e controlla `applicationId`, `versionCode` e firma del certificato prima dell'installazione via `PackageInstaller`. In caso di certificato incompatibile (`SignatureMismatch`), guida l'utente al backup completo `.zip` e al salvataggio dell'APK già scaricato.

@@ -21,6 +21,13 @@ my-upload-key.jks
 *.aab
 *.jks
 *.keystore
+*.p12
+*.pfx
+*.cer
+*.pem
+*.enc
+*.sha256
+/dist/
 /.build-outputs/
 /app/release/
 /app/build/

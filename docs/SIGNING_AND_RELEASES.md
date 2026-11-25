@@ -1,120 +1,78 @@
-# Guida alla Firma APK, Keystore e Release — PantryMaster
+# Guida alla Firma Release Permanente, Backup Cifrato e Migrazione — PantryMaster
 
-Questa guida descrive la gestione della chiave di firma crittografica per **PantryMaster** (`applicationId = com.aistudio.pantrymaster.vrkqzm`) in modo da garantire aggiornamenti in-app continui senza mai costringere gli utenti a disinstallare l'app o rischiare la perdita dei dati locali.
-
----
-
-## 1. Identità crittografica dell'applicazione
-
-Android consente l'aggiornamento diretto di un'app già installata **solo** se:
-1. `applicationId` coincide (`com.aistudio.pantrymaster.vrkqzm`).
-2. `versionCode` del nuovo APK è maggiore o uguale a quello installato.
-3. Il **certificato di firma (SHA-256)** coincide con quello dell'APK installato.
-
-Configurazione Gradle (`app/build.gradle.kts`, `signingConfigs.release`):
-- `storeFile`: letto da variabile d'ambiente `KEYSTORE_PATH` (default locale `my-upload-key.jks`).
-- `storePassword`: letto da `STORE_PASSWORD`.
-- `keyAlias`: `upload`.
-- `keyPassword`: letto da `KEY_PASSWORD`.
-
-> **Regola critica:** Non generare mai una nuova chiave di firma se esiste già una chiave con cui gli utenti hanno installato PantryMaster. In caso di perdita del keystore originale non è possibile aggiornare in-place le installazioni esistenti.
+Questa guida descrive il sistema permanente di firma locale per **PantryMaster** (`applicationId = com.aistudio.pantrymaster.vrkqzm`) progettato affinché:
+- la chiave privata Release venga creata e custodita **solo sul PC Windows dell'autore** (mai inviata a GitHub, Google AI Studio, cloud esterni o file di progetto);
+- **GitHub Actions** esegua esclusivamente verifiche del codice (Debug build, compilazione Kotlin Release, test automatici e controllo che nessun segreto sia presente nel repository);
+- tutte le build Release future abbiano **esattamente la stessa identità crittografica**.
 
 ---
 
-## 2. Dove conservare e come fare il backup sicuro del Keystore
+## 1. Dove viene generato e conservato il Keystore originale
 
-Il file `.jks` (`my-upload-key.jks`) e le relative password **NON devono mai essere caricati nel repository Git** (sono già esclusi in `.gitignore`).
+Lo script `PantryMaster-Release-Manager.ps1` (nella root del progetto) genera un singolo keystore permanente con questi parametri fissi:
+- **Percorso:** `%LOCALAPPDATA%\PantryMaster\ReleaseSigning\my-upload-key.jks`
+- **Formato:** `JKS`
+- **Alias:** `upload`
+- **Algoritmo:** `RSA 4096 bit`
+- **Validità:** `10.000` giorni
 
-Conserva almeno **due copie offline cifrate** in luoghi indipendenti:
-1. **Password Manager** (es. Bitwarden / 1Password / KeePassXC): allega il file `my-upload-key.jks`, annota `STORE_PASSWORD`, `KEY_PASSWORD`, `keyAlias = upload` e l'impronta `SHA-256` del certificato.
-2. **Supporto offline di backup** (es. unità USB cifrata o archivio cloud personale cifrato fuori da GitHub).
-
-Verifica di poter leggere il backup prima di archiviarlo:
-```bash
-keytool -list -v -keystore my-upload-key.jks -alias upload
-```
-Annota il valore **SHA256** mostrato nella sezione del certificato.
+Gradle (`app/build.gradle.kts`) legge `KEYSTORE_PATH`, `STORE_PASSWORD` e `KEY_PASSWORD` esclusivamente da variabili d'ambiente in memoria durante la build ed esegue il task `verifyReleaseSigning` che **blocca immediatamente** la build Release se il keystore manca, se le password sono errate o se punta a un certificato `CN=Android Debug`.
 
 ---
 
-## 3. Configurazione dei GitHub Secrets
+## 2. Inizializzazione in un unico comando (Windows PowerShell 5.1+)
 
-Nel repository GitHub apri **Settings → Secrets and variables → Actions → Repository secrets** e imposta:
-
-| Nome Secret | Contenuto richiesto | Obbligatorio |
-|---|---|---|
-| `RELEASE_KEYSTORE_BASE64` | File `my-upload-key.jks` codificato in Base64 su una sola riga | **Sì (per ogni Release)** |
-| `STORE_PASSWORD` | Password del keystore `.jks` | **Sì (per ogni Release)** |
-| `KEY_PASSWORD` | Password della chiave privata con alias `upload` | **Sì (per ogni Release)** |
-| `DEBUG_KEYSTORE_BASE64` | File `debug.keystore` codificato in Base64 (per stabilità build Debug CI) | Consigliato |
-
-Per generare la stringa Base64 senza interruzioni di riga:
-- **Linux:**
-  ```bash
-  base64 -w 0 my-upload-key.jks
-  ```
-- **macOS:**
-  ```bash
-  base64 -i my-upload-key.jks | tr -d '\n'
-  ```
-- **Windows (PowerShell):**
-  ```powershell
-  [Convert]::ToBase64String([IO.File]::ReadAllBytes("my-upload-key.jks"))
-  ```
-
-> I workflow di GitHub Actions rimuovono automaticamente eventuali spazi/a-capo dal Base64, non stampano mai password o chiavi nei log ed eliminano il file `.jks` temporaneo al termine del job (`if: always()`).
-
----
-
-## 4. Ripristino della configurazione su un nuovo ambiente locale
-
-Se devi compilare una Release firmata su un nuovo computer:
-1. Recupera `my-upload-key.jks`, `STORE_PASSWORD` e `KEY_PASSWORD` dal tuo Password Manager / backup cifrato.
-2. Posiziona `my-upload-key.jks` nella root del progetto (oppure imposta `KEYSTORE_PATH`).
-3. Esporta le variabili d'ambiente nella shell prima di compilare:
-   ```bash
-   export KEYSTORE_PATH="$(pwd)/my-upload-key.jks"
-   export STORE_PASSWORD="<la-tua-store-password>"
-   export KEY_PASSWORD="<la-tua-key-password>"
-   ./gradlew assembleRelease
+1. Clona o aggiorna il repository sul tuo PC Windows (`git pull`).
+2. Apri **Windows PowerShell** nella cartella principale del progetto ed esegui:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\PantryMaster-Release-Manager.ps1
    ```
-   *(In questo ambiente usa `gradle :app:assembleRelease` senza `./gradlew`).*
+3. Nel menu interattivo esegui in ordine:
+   - **Opzione 9 (Diagnostica completa):** verifica JDK 21, `keytool`, Android SDK (`apksigner`, `aapt2`) e Gradle.
+   - **Opzione 1 (Crea nuova firma Release):** genera `my-upload-key.jks`, richiede le password in modo protetto (`AsSecureString`), crea `RELEASE_CERTIFICATE_INFO.txt` (solo dati pubblici) e non sovrascrive mai una chiave esistente senza doppia conferma esplicita.
+   - **Opzione 4 (Crea backup cifrato):** cifra `my-upload-key.jks` con **AES-256-CBC + HMAC-SHA256 + PBKDF2** e verifica l'integrità su due supporti separati (cartella locale `backups\` + chiavetta USB / disco esterno offline).
 
 ---
 
-## 5. Verifica crittografica del certificato e dei metadati APK
+## 3. Backup cifrato, conservazione su due supporti e ripristino
 
-Prima di distribuire qualsiasi APK Release, verifica sempre firma, `applicationId` e `versionCode`:
-
-```bash
-# Verifica firma APK (v1/v2/v3) e stampa SHA-256 del certificato
-"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
-
-# Verifica packageId, versionCode e versionName
-"$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging app/build/outputs/apk/release/app-release.apk | head -n 1
-```
-
-In app puoi anche controllare in qualsiasi momento l'impronta SHA-256 installata sul telefono aprendo **Impostazioni → Aggiornamenti e Versione**, dove il pannello mostra `Build: Release` (o `Debug`) e la `Firma SHA-256` copiabile.
+- **Copia 1 (locale):** `%LOCALAPPDATA%\PantryMaster\ReleaseSigning\backups\my-upload-key_backup_<timestamp>.jks.enc`
+- **Copia 2 (supporto separato obbligatorio):** unità esterna/USB cifrata offline (richiesta direttamente dall'opzione 4).
+- **File informativo pubblico (zero segreti):** `RELEASE_CERTIFICATE_INFO.txt` contiene esclusivamente alias, algoritmo, validità, impronta SHA-256, data di creazione e identificativo pubblico del certificato.
+- **Ripristino su nuovo PC:** installa JDK 21 e Android SDK, avvia `PantryMaster-Release-Manager.ps1` e scegli **Opzione 5 (Verifica backup)** indicando il file `.jks.enc` e la password del backup. Lo script verifica HMAC e integrità e ripristina il keystore solo previa conferma esplicita (salvando prima una copia di sicurezza se un file è già presente).
 
 ---
 
-## 6. Procedura per creare una nuova Release senza cambiare firma
+## 4. Verifica crittografica e compilazione Release locale
 
-1. Verifica che su GitHub siano configurati `RELEASE_KEYSTORE_BASE64`, `STORE_PASSWORD` e `KEY_PASSWORD`.
-2. Vai su **Actions → Release Progressiva → Run workflow**:
-   - Scegli `bump_type` (`patch`, `minor` o `major`).
-   - Lascia `allow_signature_change = false` (predefinito).
-3. Il workflow esegue automaticamente in sequenza:
-   - Controllo integrità keystore Release (fallisce subito se mancante o se è un certificato Debug)
-   - Verifica dipendenze, `assembleDebug` e `testDebugUnitTest`
-   - Compilazione e firma `assembleRelease` e `bundleRelease`
-   - Verifica crittografica con `apksigner verify --print-certs`
-   - Confronto automatico con la firma della release precedente pubblicata su GitHub (blocca qualsiasi cambio certificato non intenzionale)
-   - Verifica `applicationId`, `versionCode` e `versionName` con `aapt2`
-   - Generazione checksum `.sha256`, commit/tag `vX.Y.Z`, upload artifact e pubblicazione GitHub Release.
+Nel menu di `PantryMaster-Release-Manager.ps1`:
+- **Opzione 6 (`Compila APK Release`):** compila `:app:assembleRelease`, salva l'APK firmato in `.\dist\PantryMaster-v<ver>-build<code>.apk` con relativo `.sha256` ed esegue automaticamente `apksigner verify --verbose --print-certs` e `aapt2 dump badging`.
+- **Opzione 7 (`Compila AAB Release`):** compila `:app:bundleRelease` e verifica la firma con `jarsigner -verify -strict`.
+- **Opzione 8 (`Verifica firma APK`):** verifica qualsiasi APK e controlla che l'impronta SHA-256 coincida con `RELEASE_CERTIFICATE_INFO.txt`.
 
-> **Nota sulla migrazione unica da Debug a Release:** Se sul telefono era installata una vecchia versione firmata Debug e pubblichi la prima versione firmata con il keystore Release definitivo, l'app rileverà automaticamente `Firma digitale diversa` e guiderà l'utente a:
-> 1. Esportare il **backup completo (.zip)** di dispensa, foto e schede Info.
-> 2. Salvare il nuovo APK già scaricato in **Download**.
-> 3. Disinstallare la vecchia versione Debug, installare il nuovo APK Release e ripristinare il backup da **Impostazioni**.
-> Tutte le versioni Release successive useranno lo stesso certificato e si aggiorneranno direttamente in-app senza alcuna disinstallazione.
+Per creare una Release futura su GitHub:
+1. Compila e verifica localmente l'APK (Opzione 6).
+2. Crea il tag/release su GitHub allegando l'APK firmato localmente (e il file `.sha256`). Tutte le versioni firmate con lo stesso `my-upload-key.jks` si aggiorneranno direttamente in-app senza perdere dati.
+
+---
+
+## 5. Analisi versione 1.0.15 e strategia di migrazione dati sicura
+
+### Verifica forense sugli APK distribuiti su GitHub
+Analisi eseguita con `apksigner verify --verbose --print-certs` e `aapt2 dump badging`:
+- **PantryMaster `v1.0.15` (`build 16`):** `applicationId = com.aistudio.pantrymaster.vrkqzm`, firmato con certificato **`CN=Android Debug`** (`SHA-256: eb35bc9fe31cb9f3e13e53cbc9e4ef1f43af00106508d40d622bdba5d8e635d9`, RSA 2048-bit).
+- **PantryMaster `v1.0.16` (`build 17`):** `applicationId = com.aistudio.pantrymaster.vrkqzm`, firmato con un **diverso** certificato **`CN=Android Debug`** (`SHA-256: 44b661aece6de9157878548d9169db29fb936050785e172e66d7fccf68c38420`, RSA 2048-bit).
+
+### Perché l'aggiornamento diretto (e la key rotation v3) NON è possibile rispetto a `1.0.15`
+1. Il nuovo keystore permanente `my-upload-key.jks` (RSA 4096-bit) ha inevitabilmente una **impronta SHA-256 diversa** da `eb35bc9fe31cb9f3e13e53cbc9e4ef1f43af00106508d40d622bdba5d8e635d9`.
+2. La **rotazione della chiave Android (APK Signature Scheme v3)** richiede crittograficamente di possedere ancora la **chiave privata originale** usata per firmare `v1.0.15` per generare la `SigningCertificateLineage` firmata dalla vecchia chiave — e non è tecnicamente né raccomandato né sicuro basare una catena di produzione su una chiave effimera `CN=Android Debug` ormai assente.
+3. Pertanto Android **rifiuterà sempre** l'aggiornamento in-place sopra `1.0.15` (`STATUS_FAILURE_CONFLICT`).
+
+### Procedura di migrazione senza perdita dati (già integrata in PantryMaster)
+Prima di installare per la prima volta la nuova Release permanente al posto di `1.0.15` (non disinstallare prima del backup!):
+1. Apri PantryMaster `1.0.15` sul telefono → **Impostazioni → Backup e Dati Offline → Backup completo (.zip)**.
+   - Questo esporta tutte le 12 tabelle Room (prodotti, lotti, movimenti, categorie, posizioni, liste spesa, **schede Info seconda casa**, promemoria, impostazioni), le immagini locali e il tema scelto. *(Nota: eventuali personalizzazioni minori in DataStore come titolo Home personalizzato o URL repo custom possono essere reimpostate rapidamente dopo il ripristino).*
+2. Verifica che il file `pantrymaster_backup.zip` sia stato salvato correttamente (es. in Download o su cloud personale).
+3. Solo dopo aver verificato il backup `.zip`, disinstalla `1.0.15` e installa il nuovo APK firmato con `my-upload-key.jks`.
+4. Apri la nuova versione → **Impostazioni → Backup e Dati Offline → Ripristina da backup (.zip)** e seleziona `pantrymaster_backup.zip`.
+5. Da questo momento in poi tutte le versioni future compilate con `PantryMaster-Release-Manager.ps1` si aggiorneranno direttamente in-app senza disinstallazione.

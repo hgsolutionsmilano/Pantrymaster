@@ -1,4 +1,7 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.io.File
+import java.security.KeyStore
+import java.security.cert.X509Certificate
 import java.util.Properties
 
 plugins {
@@ -200,3 +203,68 @@ dependencies {
   "ksp"(libs.hilt.compiler)
   "ksp"(libs.androidx.hilt.compiler)
 }
+
+val releaseKeystorePathProvider = providers.environmentVariable("KEYSTORE_PATH")
+  .orElse("${rootDir.absolutePath}/my-upload-key.jks")
+val releaseStorePasswordProvider = providers.environmentVariable("STORE_PASSWORD")
+val releaseKeyPasswordProvider = providers.environmentVariable("KEY_PASSWORD")
+
+val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
+  group = "verification"
+  description = "Verifica presenza, alias e credenziali del keystore Release locale prima del packaging."
+  val ksPath = releaseKeystorePathProvider
+  val storePass = releaseStorePasswordProvider
+  val keyPass = releaseKeyPasswordProvider
+
+  doLast {
+    val path = ksPath.get()
+    val ksFile = File(path)
+    if (!ksFile.exists() || !ksFile.isFile) {
+      throw GradleException(
+        "Keystore Release non trovato in: $path. " +
+          "Esegui PantryMaster-Release-Manager.ps1 (oppure imposta KEYSTORE_PATH, STORE_PASSWORD e KEY_PASSWORD). " +
+          "La build Release non utilizza mai la firma Debug come fallback."
+      )
+    }
+    val sp = storePass.orNull
+    val kp = keyPass.orNull
+    if (sp.isNullOrBlank() || kp.isNullOrBlank()) {
+      throw GradleException(
+        "Credenziali STORE_PASSWORD e KEY_PASSWORD mancanti. " +
+          "Avvia PantryMaster-Release-Manager.ps1 per compilare in modo sicuro."
+      )
+    }
+
+    val ks = KeyStore.getInstance("JKS")
+    ksFile.inputStream().use { input ->
+      try {
+        ks.load(input, sp.toCharArray())
+      } catch (e: Exception) {
+        throw GradleException("Password del keystore (STORE_PASSWORD) errata o file JKS corrotto: $path", e)
+      }
+    }
+    if (!ks.containsAlias("upload") || !ks.isKeyEntry("upload")) {
+      throw GradleException("Alias 'upload' mancante o non valido nel keystore: $path")
+    }
+    try {
+      ks.getKey("upload", kp.toCharArray())
+        ?: throw GradleException("Chiave privata associata ad alias 'upload' non trovata.")
+    } catch (e: Exception) {
+      throw GradleException("Password della chiave (KEY_PASSWORD) errata per l'alias 'upload'.", e)
+    }
+    val cert = ks.getCertificate("upload") as? X509Certificate
+      ?: throw GradleException("Certificato X.509 mancante per l'alias 'upload'.")
+    if (cert.subjectX500Principal.name.contains("CN=Android Debug", ignoreCase = true)) {
+      throw GradleException("Il keystore Release punta a un certificato Android Debug: operazione bloccata.")
+    }
+  }
+}
+
+tasks.matching {
+  it.name == "validateSigningRelease" ||
+    it.name == "packageRelease" ||
+    it.name == "signReleaseBundle"
+}.configureEach {
+  dependsOn(verifyReleaseSigning)
+}
+

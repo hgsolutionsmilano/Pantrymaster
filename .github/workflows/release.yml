@@ -1,44 +1,23 @@
-name: Release Progressiva
+name: Verifica Pre-Release (Solo Controlli CI)
 
 on:
   workflow_dispatch:
-    inputs:
-      bump_type:
-        description: 'Tipo di incremento versione (patch, minor, major)'
-        required: true
-        default: 'patch'
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-      prerelease:
-        description: 'Pubblica come pre-release'
-        required: false
-        default: false
-        type: boolean
-      allow_signature_change:
-        description: 'Consenti cambio firma rispetto alla release precedente (solo migrazioni volute)'
-        required: false
-        default: false
-        type: boolean
   push:
     tags:
       - 'v*.*.*'
 
-permissions:
-  contents: write
+concurrency:
+  group: release-verify-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  release:
-    name: Build, Firma e Pubblicazione Release
+  pre_release_checks:
+    name: Controlli Codice Pre-Release (Firma Locale Obbligatoria)
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Checkout repository
+      - name: 1. Checkout codice
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: 2. Configura JDK 21
         uses: actions/setup-java@v4
@@ -51,352 +30,54 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Verifica Secrets keystore Release (obbligatori)
-        id: signing
+      - name: 4. Prepara debug.keystore per test (nessuna chiave generata)
         shell: bash
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "$RELEASE_KEYSTORE_BASE64" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "::error::Secrets di firma Release mancanti. Configura RELEASE_KEYSTORE_BASE64, STORE_PASSWORD e KEY_PASSWORD in Settings -> Secrets -> Actions. Nessuna chiave Debug o temporanea verra usata per una Release."
+          if [ ! -f debug.keystore.base64 ]; then
+            echo "::error::debug.keystore.base64 mancante."
             exit 1
           fi
-          printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > my-upload-key.jks
-          if ! keytool -list -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias upload >/dev/null 2>&1; then
-            echo "::error::Keystore Release non valido, STORE_PASSWORD errata o alias 'upload' mancante."
-            rm -f my-upload-key.jks
-            exit 1
-          fi
-          CERT_DN=$(keytool -list -v -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias upload 2>/dev/null | grep -m1 "Owner:" || true)
-          if echo "$CERT_DN" | grep -qi "CN=Android Debug"; then
-            echo "::error::Il keystore configurato in RELEASE_KEYSTORE_BASE64 e un certificato Android Debug. Imposta il keystore Release originale."
-            rm -f my-upload-key.jks
-            exit 1
-          fi
-
-      - name: Prepara debug.keystore coerente per build e test Debug
-        shell: bash
-        env:
-          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
-            printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > debug.keystore
-          elif [ -f debug.keystore.base64 ]; then
-            tr -d '[:space:]' < debug.keystore.base64 | base64 --decode > debug.keystore
-          else
-            echo "::error::DEBUG_KEYSTORE_BASE64 e debug.keystore.base64 mancanti."
-            exit 1
-          fi
+          tr -d '[:space:]' < debug.keystore.base64 | base64 --decode > debug.keystore
           keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
 
-      - name: 4. Verifica delle dipendenze
+      - name: 5. Verifica sicurezza (nessun keystore Release o backup cifrato nel repo)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TRACKED=$(git ls-files '*.jks' '*.keystore' '*.p12' '*.pfx' '*.enc' '.env' || true)
+          if [ -n "$TRACKED" ]; then
+            echo "::error::Trovati file sensibili tracciati da Git: $TRACKED"
+            exit 1
+          fi
+
+      - name: 6. Verifica dipendenze Release e Debug
         run: gradle :app:dependencies --configuration releaseRuntimeClasspath --no-daemon >/dev/null
 
-      - name: 5. Compilazione Debug
-        run: gradle :app:assembleDebug --no-daemon
+      - name: 7. Compilazione Debug e Kotlin Release
+        run: gradle :app:assembleDebug :app:compileReleaseKotlin --no-daemon
 
-      - name: 6. Esecuzione test unitari e Robolectric
+      - name: 8. Esecuzione test unitari e Robolectric
         run: gradle :app:testDebugUnitTest --no-daemon
 
-      - name: Calcola metadati versione Release
-        id: ver
+      - name: 9. Verifica metadati version.properties e applicationId
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           source version.properties
-          MAJOR=${VERSION_MAJOR:-1}
-          MINOR=${VERSION_MINOR:-0}
-          PATCH=${VERSION_PATCH:-0}
-          CODE=${VERSION_CODE:-1}
-          REPO=${GITHUB_REPO:-}
+          echo "Versione configurata: ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH} (versionCode=${VERSION_CODE})"
+          grep -q 'applicationId = "com.aistudio.pantrymaster.vrkqzm"' app/build.gradle.kts
+          echo "NOTA: La compilazione e firma ufficiale Release (.apk/.aab) vengono eseguite esclusivamente in locale su Windows tramite PantryMaster-Release-Manager.ps1."
 
-          git fetch --tags --quiet || true
-
-          MAX_RELEASE_BUILD=$(python3 - <<'PY'
-          import json, os, re, urllib.request
-          repo = os.environ.get("GITHUB_REPOSITORY", "")
-          token = os.environ.get("GH_TOKEN", "")
-          max_build = 0
-          if repo:
-              req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases?per_page=100")
-              req.add_header("Accept", "application/vnd.github+json")
-              if token:
-                  req.add_header("Authorization", f"Bearer {token}")
-              try:
-                  with urllib.request.urlopen(req, timeout=10) as resp:
-                      for rel in json.loads(resp.read().decode("utf-8")):
-                          name = rel.get("name") or ""
-                          m = re.search(r"\(build\s+(\d+)\)", name)
-                          if m:
-                              max_build = max(max_build, int(m.group(1)))
-              except Exception:
-                  pass
-          print(max_build)
-          PY
-          )
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            HIGHEST_TAG=$(python3 - <<'PY'
-          import re, subprocess
-          best = (0, 0, 0)
-          out = subprocess.check_output(["git", "tag", "-l", "v*.*.*"], text=True)
-          for line in out.splitlines():
-              m = re.match(r"^v(\d+)\.(\d+)\.(\d+)$", line.strip())
-              if m:
-                  ver = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                  if ver > best:
-                      best = ver
-          print(f"{best[0]} {best[1]} {best[2]}")
-          PY
-            )
-            read -r TAG_MAJ TAG_MIN TAG_PAT <<< "$HIGHEST_TAG"
-            if [ $((TAG_MAJ * 1000000 + TAG_MIN * 1000 + TAG_PAT)) -gt $((MAJOR * 1000000 + MINOR * 1000 + PATCH)) ]; then
-              MAJOR=$TAG_MAJ
-              MINOR=$TAG_MIN
-              PATCH=$TAG_PAT
-            fi
-
-            case "${{ inputs.bump_type }}" in
-              major)
-                MAJOR=$((MAJOR + 1))
-                MINOR=0
-                PATCH=0
-                ;;
-              minor)
-                MINOR=$((MINOR + 1))
-                PATCH=0
-                ;;
-              patch)
-                PATCH=$((PATCH + 1))
-                ;;
-            esac
-            while git rev-parse "v${MAJOR}.${MINOR}.${PATCH}" >/dev/null 2>&1; do
-              PATCH=$((PATCH + 1))
-            done
-            CODE=$((CODE >= GITHUB_RUN_NUMBER ? CODE + 1 : GITHUB_RUN_NUMBER))
-            if [ "$CODE" -le "$MAX_RELEASE_BUILD" ]; then
-              CODE=$((MAX_RELEASE_BUILD + 1))
-            fi
-            NEW_NAME="${MAJOR}.${MINOR}.${PATCH}"
-            TAG_NAME="v${NEW_NAME}"
-          else
-            NEW_NAME="${GITHUB_REF_NAME#v}"
-            TAG_NAME="${GITHUB_REF_NAME}"
-            CODE=$((CODE > GITHUB_RUN_NUMBER ? CODE : GITHUB_RUN_NUMBER))
-            if [ "$CODE" -le "$MAX_RELEASE_BUILD" ]; then
-              CODE=$((MAX_RELEASE_BUILD + 1))
-            fi
-          fi
-
-          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
-          echo "minor=${MINOR}" >> "$GITHUB_OUTPUT"
-          echo "patch=${PATCH}" >> "$GITHUB_OUTPUT"
-          echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
-          echo "version_name=${NEW_NAME}" >> "$GITHUB_OUTPUT"
-          echo "version_code=${CODE}" >> "$GITHUB_OUTPUT"
-          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-          echo "Target Release: ${TAG_NAME} (versionCode=${CODE})"
-
-      - name: 7-8. Compilazione e Firma APK / AAB Release
-        env:
-          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          gradle :app:assembleRelease :app:bundleRelease \
-            -PversionCode=${{ steps.ver.outputs.version_code }} \
-            -PversionName=${{ steps.ver.outputs.version_name }} \
-            -PgithubRepo=${{ github.repository }} \
-            --no-daemon
-          mkdir -p release-assets
-          cp app/build/outputs/apk/release/app-release.apk \
-            "release-assets/PantryMaster-v${{ steps.ver.outputs.version_name }}.apk"
-          cp app/build/outputs/bundle/release/app-release.aab \
-            "release-assets/PantryMaster-v${{ steps.ver.outputs.version_name }}.aab"
-
-      - name: Pulizia file keystore temporaneo
+      - name: 10. Pulizia
         if: always()
         shell: bash
-        run: rm -f my-upload-key.jks debug.keystore
-
-      - name: 9. Verifica crittografica firma (apksigner) e continuità certificato
-        id: cert_check
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ALLOW_SIG_CHANGE: ${{ inputs.allow_signature_change || false }}
-        run: |
-          set -euo pipefail
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          APKSIGNER=$(find "$SDK_ROOT/build-tools" -name apksigner 2>/dev/null | sort -V | tail -n 1)
-          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
-            echo "::error::Strumento apksigner non trovato in $SDK_ROOT/build-tools."
-            exit 1
-          fi
-
-          APK_FILE="release-assets/PantryMaster-v${{ steps.ver.outputs.version_name }}.apk"
-          VERIFY_OUT=$("$APKSIGNER" verify --verbose --print-certs "$APK_FILE")
-          printf '%s\n' "$VERIFY_OUT"
-
-          NEW_DN=$(printf '%s\n' "$VERIFY_OUT" | grep -m1 "Signer #1 certificate DN:" | sed 's/.*DN:[[:space:]]*//')
-          NEW_HEX=$(printf '%s\n' "$VERIFY_OUT" | grep -m1 "Signer #1 certificate SHA-256 digest:" | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]:')
-          if [ -z "$NEW_HEX" ]; then
-            echo "::error::Impossibile leggere il digest SHA-256 della firma dell'APK."
-            exit 1
-          fi
-          if echo "$NEW_DN" | grep -qi "CN=Android Debug"; then
-            echo "::error::L'APK Release risulta firmato con certificato Android Debug. Pubblicazione bloccata."
-            exit 1
-          fi
-
-          NEW_COLON=$(printf '%s' "$NEW_HEX" | sed 's/\(..\)/\1:/g; s/:$//')
-          echo "sha256=$NEW_COLON" >> "$GITHUB_OUTPUT"
-
-          PREV_URL=$(python3 - <<'PY'
-          import json, os, urllib.request
-          repo = os.environ.get("GITHUB_REPOSITORY", "")
-          token = os.environ.get("GH_TOKEN", "")
-          if not repo:
-              print("")
-              raise SystemExit(0)
-          req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases?per_page=10")
-          req.add_header("Accept", "application/vnd.github+json")
-          if token:
-              req.add_header("Authorization", f"Bearer {token}")
-          try:
-              with urllib.request.urlopen(req, timeout=10) as resp:
-                  for rel in json.loads(resp.read().decode("utf-8")):
-                      if rel.get("draft"):
-                          continue
-                      for asset in rel.get("assets") or []:
-                          name = (asset.get("name") or "").lower()
-                          url = asset.get("browser_download_url") or ""
-                          if name.endswith(".apk") and url:
-                              print(url)
-                              raise SystemExit(0)
-          except Exception:
-              pass
-          print("")
-          PY
-          )
-
-          if [ -n "$PREV_URL" ]; then
-            curl -sSL -H "Authorization: Bearer $GH_TOKEN" "$PREV_URL" -o /tmp/prev_release.apk || true
-            if [ -s /tmp/prev_release.apk ]; then
-              PREV_OUT=$("$APKSIGNER" verify --print-certs /tmp/prev_release.apk 2>/dev/null || true)
-              PREV_DN=$(printf '%s\n' "$PREV_OUT" | grep -m1 "Signer #1 certificate DN:" | sed 's/.*DN:[[:space:]]*//')
-              PREV_HEX=$(printf '%s\n' "$PREV_OUT" | grep -m1 "Signer #1 certificate SHA-256 digest:" | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]:')
-              rm -f /tmp/prev_release.apk
-
-              if [ -n "$PREV_HEX" ] && [ "$NEW_HEX" != "$PREV_HEX" ]; then
-                if [ "$ALLOW_SIG_CHANGE" = "true" ]; then
-                  echo "::warning::Cambio firma consentito manualmente ($PREV_HEX -> $NEW_HEX)."
-                elif echo "$PREV_DN" | grep -qi "CN=Android Debug"; then
-                  echo "::warning::Prima migrazione da vecchia build Debug a firma Release permanente ($PREV_HEX -> $NEW_HEX)."
-                else
-                  echo "::error::Il certificato Release ($NEW_COLON) NON corrisponde alla release precedente ($PREV_HEX). Ripristina il keystore originale nei Secrets GitHub o usa allow_signature_change=true solo per migrazioni intenzionali."
-                  exit 1
-                fi
-              fi
-            fi
-          fi
-
-      - name: 10. Verifica applicationId, versionCode e versionName (aapt2)
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          AAPT2=$(find "$SDK_ROOT/build-tools" -name aapt2 2>/dev/null | sort -V | tail -n 1)
-          if [ -z "$AAPT2" ] || [ ! -x "$AAPT2" ]; then
-            echo "::error::Strumento aapt2 non trovato in $SDK_ROOT/build-tools."
-            exit 1
-          fi
-
-          APK_FILE="release-assets/PantryMaster-v${{ steps.ver.outputs.version_name }}.apk"
-          BADGING=$("$AAPT2" dump badging "$APK_FILE" | head -n 1)
-          echo "APK manifest: $BADGING"
-
-          EXPECTED_PKG="com.aistudio.pantrymaster.vrkqzm"
-          EXPECTED_CODE="${{ steps.ver.outputs.version_code }}"
-          EXPECTED_NAME="${{ steps.ver.outputs.version_name }}"
-
-          echo "$BADGING" | grep -q "name='${EXPECTED_PKG}'" || {
-            echo "::error::applicationId non corrispondente (atteso ${EXPECTED_PKG})."
-            exit 1
-          }
-          echo "$BADGING" | grep -q "versionCode='${EXPECTED_CODE}'" || {
-            echo "::error::versionCode non corrispondente (atteso ${EXPECTED_CODE})."
-            exit 1
-          }
-          echo "$BADGING" | grep -q "versionName='${EXPECTED_NAME}'" || {
-            echo "::error::versionName non corrispondente (atteso ${EXPECTED_NAME})."
-            exit 1
-          }
-
-      - name: 11. Genera checksum SHA-256 pacchetti
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd release-assets
-          for f in *.apk *.aab; do
-            sha256sum "$f" > "${f}.sha256"
-          done
-          cat *.sha256
-
-      - name: Commit, Tag e Push versione (solo dopo tutte le verifiche)
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > version.properties <<EOF
-          VERSION_MAJOR=${{ steps.ver.outputs.major }}
-          VERSION_MINOR=${{ steps.ver.outputs.minor }}
-          VERSION_PATCH=${{ steps.ver.outputs.patch }}
-          VERSION_CODE=${{ steps.ver.outputs.version_code }}
-          GITHUB_REPO=${{ steps.ver.outputs.repo }}
-          EOF
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add version.properties
-          git commit -m "chore(release): ${{ steps.ver.outputs.tag_name }} (build ${{ steps.ver.outputs.version_code }})"
-          git tag -a "${{ steps.ver.outputs.tag_name }}" -m "Release ${{ steps.ver.outputs.tag_name }} (versionCode ${{ steps.ver.outputs.version_code }})"
-          git push origin HEAD
-          git push origin "${{ steps.ver.outputs.tag_name }}"
+        run: rm -f debug.keystore
 
       - name: Carica report test
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: release-test-reports-${{ github.run_number }}
+          name: pre-release-test-reports-${{ github.run_number }}
           path: app/build/reports/tests/testDebugUnitTest/
           retention-days: 14
-
-      - name: 12. Pubblica APK, AAB e checksum come Artifact GitHub
-        uses: actions/upload-artifact@v4
-        with:
-          name: PantryMaster-${{ steps.ver.outputs.tag_name }}-release
-          path: release-assets/*
-          retention-days: 90
-
-      - name: Pubblica GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.ver.outputs.tag_name }}
-          name: PantryMaster ${{ steps.ver.outputs.tag_name }} (build ${{ steps.ver.outputs.version_code }})
-          body: |
-            - **Tipo pacchetto:** Release firmata
-            - **Application ID:** `com.aistudio.pantrymaster.vrkqzm`
-            - **Firma certificato SHA-256:** `${{ steps.cert_check.outputs.sha256 }}`
-          generate_release_notes: true
-          make_latest: true
-          prerelease: ${{ inputs.prerelease || false }}
-          files: release-assets/*
