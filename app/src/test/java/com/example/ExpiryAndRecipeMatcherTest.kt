@@ -1,17 +1,17 @@
 package com.example
 
+import com.example.data.local.entity.HouseInfoEntryEntity
 import com.example.domain.model.ExpiryStatus
 import com.example.domain.model.ExpiryType
-import com.example.domain.model.UnitOfMeasure
-import com.example.domain.usecase.AvailableIngredientStock
+import com.example.domain.model.HouseInfoCategory
+import com.example.domain.model.MeasurementUnit
 import com.example.domain.usecase.BatchAllocationInput
 import com.example.domain.usecase.ExpiryCalculator
 import com.example.domain.usecase.FefoConsumptionCalculator
+import com.example.domain.usecase.HouseInfoFormatter
 import com.example.domain.usecase.PantryDateUtils
-import com.example.domain.usecase.RecipeFeasibility
-import com.example.domain.usecase.RecipeIngredientSpec
-import com.example.domain.usecase.RecipeMatcher
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,35 +64,36 @@ class ExpiryAndRecipeMatcherTest {
     }
 
     @Test
-    fun `recipe matcher converts units, detects missing ingredients, and prioritizes expiring stock`() {
-        val today = PantryDateUtils.normalizeToUtcMidnight(2026, 10, 24)
-        val stock = listOf(
-            AvailableIngredientStock(
-                productId = "p_pasta",
-                productName = "Pasta",
-                availableQuantity = 1.0,
-                unit = UnitOfMeasure.KILOGRAMS,
-                earliestExpiryMillis = PantryDateUtils.addDays(today, 2)
-            ),
-            AvailableIngredientStock(
-                productId = "p_pomodoro",
-                productName = "Passata di pomodoro",
-                availableQuantity = 200.0,
-                unit = UnitOfMeasure.MILLILITERS,
-                earliestExpiryMillis = PantryDateUtils.addDays(today, 30)
-            )
+    fun `house info formatter formats dimensions, masks secrets, and omits secrets from default share text`() {
+        val measurement = HouseInfoEntryEntity(
+            id = "m1",
+            category = HouseInfoCategory.MEASUREMENT,
+            title = "Finestra soggiorno",
+            widthValue = "120",
+            heightValue = "140",
+            depthValue = "",
+            measurementUnit = MeasurementUnit.CM
         )
+        assertEquals("L 120 × H 140 cm", HouseInfoFormatter.formatDimensions(measurement))
 
-        val ingredients = listOf(
-            RecipeIngredientSpec("i1", "p_pasta", "Pasta", 400.0, UnitOfMeasure.GRAMS),
-            RecipeIngredientSpec("i2", "p_pomodoro", "Passata di pomodoro", 500.0, UnitOfMeasure.MILLILITERS)
+        val secretEntry = HouseInfoEntryEntity(
+            id = "p1",
+            category = HouseInfoCategory.PASSWORD_NOTE,
+            title = "Wi-Fi Casa Mare",
+            primaryValue = "CasaMare_5G",
+            secretValue = "SuperSecret123!",
+            notes = "Router in corridoio"
         )
+        val masked = HouseInfoFormatter.maskSecret(secretEntry.secretValue)
+        assertTrue(masked.all { it == '•' })
+        assertTrue(masked.length in 6..12)
 
-        val eval = RecipeMatcher.evaluate(ingredients, stock, todayMillis = today)
-        assertEquals(RecipeFeasibility.PARTIAL, eval.feasibility)
-        assertEquals(70, eval.availabilityPercent) // (1.0 + 0.4) / 2 = 70%
-        assertEquals(1, eval.missingIngredients.size)
-        assertEquals(300.0, eval.missingIngredients[0].missingQuantity, 0.01)
-        assertEquals(1, eval.usesExpiringProductsCount)
+        val safeShare = HouseInfoFormatter.buildShareText(secretEntry, includeSecret = false)
+        assertTrue(safeShare.contains("Wi-Fi Casa Mare"))
+        assertTrue(safeShare.contains("CasaMare_5G"))
+        assertFalse(safeShare.contains("SuperSecret123!"))
+
+        val fullShare = HouseInfoFormatter.buildShareText(secretEntry, includeSecret = true)
+        assertTrue(fullShare.contains("SuperSecret123!"))
     }
 }

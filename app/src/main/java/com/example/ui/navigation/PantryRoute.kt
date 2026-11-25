@@ -14,7 +14,7 @@ data object PantryRoute : PantryDestination
 data object ShoppingRoute : PantryDestination
 
 @Serializable
-data object RecipesRoute : PantryDestination
+data object InfoRoute : PantryDestination
 
 @Serializable
 data object StatsRoute : PantryDestination
@@ -40,10 +40,13 @@ data class ProductEditorRoute(
 data object ScannerRoute : PantryDestination
 
 @Serializable
-data class RecipeDetailRoute(val recipeId: String) : PantryDestination
+data class InfoDetailRoute(val entryId: String) : PantryDestination
 
 @Serializable
-data class RecipeEditorRoute(val recipeId: String? = null) : PantryDestination
+data class InfoEditorRoute(
+    val entryId: String? = null,
+    val initialCategoryName: String? = null
+) : PantryDestination
 
 @Serializable
 data object MovementHistoryRoute : PantryDestination

@@ -3,10 +3,10 @@ package com.example.di
 import android.content.Context
 import androidx.room.Room
 import com.example.data.local.dao.CategoryDao
+import com.example.data.local.dao.HouseInfoDao
 import com.example.data.local.dao.ProductBatchDao
 import com.example.data.local.dao.ProductDao
 import com.example.data.local.dao.ProductImageDao
-import com.example.data.local.dao.RecipeDao
 import com.example.data.local.dao.ReminderDao
 import com.example.data.local.dao.SettingsDao
 import com.example.data.local.dao.ShoppingDao
@@ -33,7 +33,7 @@ object DatabaseModule {
             PantryDatabase::class.java,
             PantryDatabase.DATABASE_NAME
         )
-            .addMigrations(PantryDatabase.MIGRATION_1_2)
+            .addMigrations(PantryDatabase.MIGRATION_1_2, PantryDatabase.MIGRATION_2_3)
             .build()
     }
 
@@ -59,7 +59,7 @@ object DatabaseModule {
     fun provideShoppingDao(db: PantryDatabase): ShoppingDao = db.shoppingDao()
 
     @Provides
-    fun provideRecipeDao(db: PantryDatabase): RecipeDao = db.recipeDao()
+    fun provideHouseInfoDao(db: PantryDatabase): HouseInfoDao = db.houseInfoDao()
 
     @Provides
     fun provideReminderDao(db: PantryDatabase): ReminderDao = db.reminderDao()

@@ -3,11 +3,11 @@ package com.example.data.local.relation
 import androidx.room.Embedded
 import androidx.room.Relation
 import com.example.data.local.entity.CategoryEntity
+import com.example.data.local.entity.HouseInfoEntryEntity
+import com.example.data.local.entity.HouseInfoPhotoEntity
 import com.example.data.local.entity.ProductBatchEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.ProductImageEntity
-import com.example.data.local.entity.RecipeEntity
-import com.example.data.local.entity.RecipeIngredientEntity
 import com.example.data.local.entity.ShoppingItemEntity
 import com.example.data.local.entity.ShoppingListEntity
 import com.example.data.local.entity.StockMovementEntity
@@ -83,14 +83,17 @@ data class ShoppingListWithItems(
     val items: List<ShoppingItemEntity>
 )
 
-data class RecipeWithIngredients(
-    @Embedded val recipe: RecipeEntity,
+data class HouseInfoWithPhotos(
+    @Embedded val entry: HouseInfoEntryEntity,
     @Relation(
         parentColumn = "id",
-        entityColumn = "recipe_id"
+        entityColumn = "entry_id"
     )
-    val ingredients: List<RecipeIngredientEntity>
-)
+    val photos: List<HouseInfoPhotoEntity>
+) {
+    val sortedPhotos: List<HouseInfoPhotoEntity>
+        get() = photos.sortedBy { it.sortOrder }
+}
 
 data class CategorySpendAggregate(
     val categoryId: String,

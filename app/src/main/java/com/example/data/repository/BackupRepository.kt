@@ -5,10 +5,10 @@ import android.net.Uri
 import androidx.room.withTransaction
 import com.example.data.local.ImageStorageManager
 import com.example.data.local.dao.CategoryDao
+import com.example.data.local.dao.HouseInfoDao
 import com.example.data.local.dao.ProductBatchDao
 import com.example.data.local.dao.ProductDao
 import com.example.data.local.dao.ProductImageDao
-import com.example.data.local.dao.RecipeDao
 import com.example.data.local.dao.ReminderDao
 import com.example.data.local.dao.SettingsDao
 import com.example.data.local.dao.ShoppingDao
@@ -17,11 +17,11 @@ import com.example.data.local.dao.StorageLocationDao
 import com.example.data.local.db.DatabaseSeeder
 import com.example.data.local.db.PantryDatabase
 import com.example.data.local.entity.CategoryEntity
+import com.example.data.local.entity.HouseInfoEntryEntity
+import com.example.data.local.entity.HouseInfoPhotoEntity
 import com.example.data.local.entity.ProductBatchEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.ProductImageEntity
-import com.example.data.local.entity.RecipeEntity
-import com.example.data.local.entity.RecipeIngredientEntity
 import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.SettingsEntity
 import com.example.data.local.entity.ShoppingItemEntity
@@ -45,7 +45,7 @@ import javax.inject.Singleton
 
 @Serializable
 data class PantryBackupPayload(
-    val schemaVersion: Int = 2,
+    val schemaVersion: Int = 3,
     val exportedAt: Long = System.currentTimeMillis(),
     val categories: List<CategoryEntity>,
     val storageLocations: List<StorageLocationEntity>,
@@ -55,8 +55,8 @@ data class PantryBackupPayload(
     val movements: List<StockMovementEntity>,
     val shoppingLists: List<ShoppingListEntity>,
     val shoppingItems: List<ShoppingItemEntity>,
-    val recipes: List<RecipeEntity>,
-    val recipeIngredients: List<RecipeIngredientEntity>,
+    val houseInfoEntries: List<HouseInfoEntryEntity> = emptyList(),
+    val houseInfoPhotos: List<HouseInfoPhotoEntity> = emptyList(),
     val reminders: List<ReminderEntity>,
     val settings: SettingsEntity
 )
@@ -77,7 +77,7 @@ class BackupRepository @Inject constructor(
     private val batchDao: ProductBatchDao,
     private val movementDao: StockMovementDao,
     private val shoppingDao: ShoppingDao,
-    private val recipeDao: RecipeDao,
+    private val houseInfoDao: HouseInfoDao,
     private val reminderDao: ReminderDao,
     private val settingsDao: SettingsDao,
     private val imageStorageManager: ImageStorageManager,
@@ -94,8 +94,8 @@ class BackupRepository @Inject constructor(
             movements = movementDao.getAll(),
             shoppingLists = shoppingDao.getAllLists(),
             shoppingItems = shoppingDao.getAllItems(),
-            recipes = recipeDao.getAllRecipes(),
-            recipeIngredients = recipeDao.getAllIngredients(),
+            houseInfoEntries = houseInfoDao.getAllEntries(),
+            houseInfoPhotos = houseInfoDao.getAllPhotos(),
             reminders = reminderDao.getAll(),
             settings = settingsDao.getSettings() ?: SettingsEntity(id = 1)
         )
@@ -109,7 +109,7 @@ class BackupRepository @Inject constructor(
                 out.write(text.toByteArray(Charsets.UTF_8))
             } ?: return@withContext BackupOperationResult.Error("Impossibile aprire il file di destinazione.")
             BackupOperationResult.Success(
-                "Esportazione JSON completata (${payload.products.size} prodotti, ${payload.batches.size} lotti)."
+                "Esportazione JSON completata (${payload.products.size} prodotti, ${payload.houseInfoEntries.size} schede casa)."
             )
         }.getOrElse { e ->
             BackupOperationResult.Error("Errore esportazione JSON: ${e.localizedMessage ?: "sconosciuto"}")
@@ -140,7 +140,7 @@ class BackupRepository @Inject constructor(
             } ?: return@withContext BackupOperationResult.Error("Impossibile creare l'archivio di backup.")
 
             BackupOperationResult.Success(
-                "Backup completo salvato (${payload.products.size} prodotti, ${images.size} immagini)."
+                "Backup completo salvato (${payload.products.size} prodotti, ${payload.houseInfoEntries.size} schede casa, ${images.size} immagini)."
             )
         }.getOrElse { e ->
             BackupOperationResult.Error("Errore creazione backup: ${e.localizedMessage ?: "sconosciuto"}")
@@ -154,7 +154,7 @@ class BackupRepository @Inject constructor(
             val payload = json.decodeFromString(PantryBackupPayload.serializer(), text)
             restorePayload(payload)
             BackupOperationResult.Success(
-                "Importazione completata: ${payload.products.size} prodotti, ${payload.recipes.size} ricette."
+                "Importazione completata: ${payload.products.size} prodotti, ${payload.houseInfoEntries.size} schede casa."
             )
         }.getOrElse { e ->
             BackupOperationResult.Error("File JSON non valido: ${e.localizedMessage ?: "errore formato"}")
@@ -202,15 +202,20 @@ class BackupRepository @Inject constructor(
                 val updated = restoredPaths[fileName] ?: img.localFilePath
                 img.copy(localFilePath = updated)
             }
-            val remappedRecipes = decoded.recipes.map { rec ->
-                val path = rec.imagePath ?: return@map rec
-                val fileName = File(path).name
-                rec.copy(imagePath = restoredPaths[fileName] ?: path)
+            val remappedHousePhotos = decoded.houseInfoPhotos.map { photo ->
+                val fileName = File(photo.localFilePath).name
+                val updated = restoredPaths[fileName] ?: photo.localFilePath
+                photo.copy(localFilePath = updated)
             }
 
-            restorePayload(decoded.copy(productImages = remappedImages, recipes = remappedRecipes))
+            restorePayload(
+                decoded.copy(
+                    productImages = remappedImages,
+                    houseInfoPhotos = remappedHousePhotos
+                )
+            )
             BackupOperationResult.Success(
-                "Ripristino completato (${decoded.products.size} prodotti, ${restoredPaths.size} immagini)."
+                "Ripristino completato (${decoded.products.size} prodotti, ${decoded.houseInfoEntries.size} schede casa, ${restoredPaths.size} immagini)."
             )
         }.getOrElse { e ->
             BackupOperationResult.Error("Errore ripristino backup: ${e.localizedMessage ?: "errore"}")
@@ -223,7 +228,7 @@ class BackupRepository @Inject constructor(
 
         database.withTransaction {
             shoppingDao.deleteAllLists()
-            recipeDao.deleteAllRecipes()
+            houseInfoDao.deleteAllEntries()
             reminderDao.deleteAll()
             movementDao.deleteAll()
             batchDao.deleteAll()
@@ -238,8 +243,8 @@ class BackupRepository @Inject constructor(
             movementDao.insertAll(payload.movements)
             shoppingDao.insertLists(payload.shoppingLists)
             shoppingDao.insertItems(payload.shoppingItems)
-            recipeDao.insertRecipes(payload.recipes)
-            recipeDao.insertIngredients(payload.recipeIngredients)
+            houseInfoDao.insertEntries(payload.houseInfoEntries)
+            houseInfoDao.insertPhotos(payload.houseInfoPhotos)
             reminderDao.insertAll(payload.reminders)
             settingsDao.upsert(payload.settings)
         }

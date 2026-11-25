@@ -3,4 +3,7 @@
     <cache-path
         name="app_updates"
         path="updates/" />
+    <cache-path
+        name="captured_photos"
+        path="camera_photos/" />
 </paths>

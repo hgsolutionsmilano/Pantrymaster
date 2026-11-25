@@ -511,7 +511,7 @@ fun SettingsScreen(
                 ) {
                     Text("Backup e Dati Offline", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        text = "Include prodotti, lotti, movimenti, liste della spesa, ricette e immagini locali.",
+                        text = "Include prodotti, lotti, movimenti, liste della spesa, schede casa e immagini locali.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

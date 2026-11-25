@@ -4,12 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.entity.ShoppingItemEntity
 import com.example.data.local.relation.BatchWithProduct
+import com.example.data.local.relation.HouseInfoWithPhotos
 import com.example.data.local.relation.ProductWithDetails
 import com.example.data.preferences.UserPreferencesDataStore
-import com.example.data.repository.EvaluatedRecipe
+import com.example.data.repository.HouseInfoRepository
 import com.example.data.repository.LowStockSuggestion
 import com.example.data.repository.PantryRepository
-import com.example.data.repository.RecipeRepository
 import com.example.data.repository.ShoppingRepository
 import com.example.domain.model.ExpiryStatus
 import com.example.domain.usecase.ExpiryCalculator
@@ -34,14 +34,15 @@ data class HomeDashboardUiState(
     val recentProducts: List<ProductWithDetails> = emptyList(),
     val pendingShoppingItems: List<ShoppingItemEntity> = emptyList(),
     val pendingShoppingCount: Int = 0,
-    val suggestedRecipes: List<EvaluatedRecipe> = emptyList()
+    val pinnedHouseInfo: List<HouseInfoWithPhotos> = emptyList(),
+    val totalHouseInfoCount: Int = 0
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val pantryRepository: PantryRepository,
-    private val shoppingRepository: ShoppingRepository,
-    private val recipeRepository: RecipeRepository,
+    shoppingRepository: ShoppingRepository,
+    houseInfoRepository: HouseInfoRepository,
     userPreferencesDataStore: UserPreferencesDataStore
 ) : ViewModel() {
 
@@ -50,8 +51,8 @@ class HomeViewModel @Inject constructor(
         pantryRepository.observeActiveBatches(),
         shoppingRepository.observeListsWithItems(),
         shoppingRepository.observeLowStockSuggestions(),
-        recipeRepository.observeEvaluatedRecipes()
-    ) { products, activeBatches, shoppingLists, lowStock, recipes ->
+        houseInfoRepository.observeAll()
+    ) { products, activeBatches, shoppingLists, lowStock, houseInfoEntries ->
         val today = PantryDateUtils.todayStartMillis()
         val expiringSoon = mutableListOf<BatchWithProduct>()
         val expired = mutableListOf<BatchWithProduct>()
@@ -81,10 +82,7 @@ class HomeViewModel @Inject constructor(
 
         val inStockProducts = products.count { it.totalAvailableQuantity > 0.0 }
         val recent = products.sortedByDescending { it.product.createdAt }.take(5)
-
-        val consumptionRecipes = recipes
-            .filter { it.evaluation.usesExpiringProductsCount > 0 || it.evaluation.availabilityPercent >= 60 }
-            .take(3)
+        val pinnedHouse = houseInfoEntries.filter { it.entry.isPinned }.take(6)
 
         HomeDashboardUiState(
             isLoading = false,
@@ -97,7 +95,8 @@ class HomeViewModel @Inject constructor(
             recentProducts = recent,
             pendingShoppingItems = pendingItems.take(5),
             pendingShoppingCount = pendingItems.size,
-            suggestedRecipes = consumptionRecipes
+            pinnedHouseInfo = pinnedHouse,
+            totalHouseInfoCount = houseInfoEntries.size
         )
     }
 

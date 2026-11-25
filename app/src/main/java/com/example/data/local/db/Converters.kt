@@ -2,9 +2,10 @@ package com.example.data.local.db
 
 import androidx.room.TypeConverter
 import com.example.domain.model.ExpiryType
+import com.example.domain.model.HouseInfoCategory
 import com.example.domain.model.LocationType
+import com.example.domain.model.MeasurementUnit
 import com.example.domain.model.MovementType
-import com.example.domain.model.RecipeDifficulty
 import com.example.domain.model.ThemePreference
 import com.example.domain.model.UnitOfMeasure
 
@@ -38,11 +39,18 @@ class Converters {
         runCatching { MovementType.valueOf(value) }.getOrDefault(MovementType.ADJUSTMENT)
 
     @TypeConverter
-    fun fromRecipeDifficulty(value: RecipeDifficulty): String = value.name
+    fun fromHouseInfoCategory(value: HouseInfoCategory): String = value.name
 
     @TypeConverter
-    fun toRecipeDifficulty(value: String): RecipeDifficulty =
-        runCatching { RecipeDifficulty.valueOf(value) }.getOrDefault(RecipeDifficulty.EASY)
+    fun toHouseInfoCategory(value: String): HouseInfoCategory =
+        runCatching { HouseInfoCategory.valueOf(value) }.getOrDefault(HouseInfoCategory.PHONE_NUMBER)
+
+    @TypeConverter
+    fun fromMeasurementUnit(value: MeasurementUnit): String = value.name
+
+    @TypeConverter
+    fun toMeasurementUnit(value: String): MeasurementUnit =
+        runCatching { MeasurementUnit.valueOf(value) }.getOrDefault(MeasurementUnit.CM)
 
     @TypeConverter
     fun fromThemePreference(value: ThemePreference): String = value.name

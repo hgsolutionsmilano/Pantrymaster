@@ -60,10 +60,38 @@ enum class MovementType(val labelIt: String, val isInbound: Boolean) {
 }
 
 @Serializable
-enum class RecipeDifficulty(val labelIt: String) {
-    EASY("Facile"),
-    MEDIUM("Media"),
-    HARD("Difficile")
+enum class HouseInfoCategory(
+    val labelIt: String,
+    val shortLabelIt: String,
+    val subtitleHintIt: String
+) {
+    PHONE_NUMBER(
+        labelIt = "Numeri utili",
+        shortLabelIt = "Numeri",
+        subtitleHintIt = "Ruolo o ditta (es. Idraulico, Amministratore)"
+    ),
+    MEASUREMENT(
+        labelIt = "Misure casa",
+        shortLabelIt = "Misure",
+        subtitleHintIt = "Stanza o elemento (es. Finestra camera, Nicchia frigo)"
+    ),
+    PHOTO_DETAIL(
+        labelIt = "Foto dettagli",
+        shortLabelIt = "Foto",
+        subtitleHintIt = "Zona o impianto (es. Quadro elettrico, Valvola gas)"
+    ),
+    PASSWORD_NOTE(
+        labelIt = "Password & Note",
+        shortLabelIt = "Password",
+        subtitleHintIt = "Servizio o dispositivo (es. Wi-Fi, Allarme, Cancello)"
+    )
+}
+
+@Serializable
+enum class MeasurementUnit(val symbol: String, val labelIt: String) {
+    CM("cm", "Centimetri (cm)"),
+    MM("mm", "Millimetri (mm)"),
+    M("m", "Metri (m)")
 }
 
 @Serializable

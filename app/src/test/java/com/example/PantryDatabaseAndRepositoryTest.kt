@@ -14,9 +14,9 @@ import androidx.work.workDataOf
 import com.example.data.local.ImageStorageManager
 import com.example.data.local.db.DatabaseSeeder
 import com.example.data.local.db.PantryDatabase
+import com.example.data.local.entity.HouseInfoEntryEntity
+import com.example.data.local.entity.HouseInfoPhotoEntity
 import com.example.data.local.entity.ProductEntity
-import com.example.data.local.entity.RecipeEntity
-import com.example.data.local.entity.RecipeIngredientEntity
 import com.example.data.local.entity.SettingsEntity
 import com.example.data.local.entity.ShoppingItemEntity
 import com.example.data.local.entity.ShoppingListEntity
@@ -31,8 +31,9 @@ import com.example.data.repository.NewBatchInput
 import com.example.data.repository.PantryRepository
 import com.example.data.worker.ExpiryNotificationWorker
 import com.example.domain.model.ExpiryType
+import com.example.domain.model.HouseInfoCategory
+import com.example.domain.model.MeasurementUnit
 import com.example.domain.model.MovementType
-import com.example.domain.model.RecipeDifficulty
 import com.example.domain.model.UnitOfMeasure
 import com.example.domain.usecase.PantryDateUtils
 import kotlinx.coroutines.flow.first
@@ -147,7 +148,7 @@ class PantryDatabaseAndRepositoryTest {
     }
 
     @Test
-    fun `room relations work for shopping lists and recipes`() = runTest {
+    fun `room relations work for shopping lists and house info`() = runTest {
         db.storageLocationDao().insertAll(DatabaseSeeder.defaultLocations())
         db.categoryDao().insertAll(DatabaseSeeder.defaultCategories())
 
@@ -167,27 +168,30 @@ class PantryDatabaseAndRepositoryTest {
         assertEquals(1, lists[0].items.size)
         assertEquals("Pomodori", lists[0].items[0].name)
 
-        db.recipeDao().saveRecipeWithIngredients(
-            recipe = RecipeEntity(
-                id = "rec_1",
-                name = "Pasta al Pomodoro",
-                prepTimeMinutes = 15,
-                difficulty = RecipeDifficulty.EASY,
-                servings = 2
+        db.houseInfoDao().saveEntryWithPhotos(
+            entry = HouseInfoEntryEntity(
+                id = "info_1",
+                category = HouseInfoCategory.MEASUREMENT,
+                title = "Finestra cucina",
+                widthValue = "110",
+                heightValue = "130",
+                measurementUnit = MeasurementUnit.CM,
+                isPinned = true
             ),
-            ingredients = listOf(
-                RecipeIngredientEntity(
-                    id = "ing_1",
-                    recipeId = "rec_1",
-                    ingredientName = "Pasta",
-                    requiredQuantity = 200.0,
-                    unit = UnitOfMeasure.GRAMS
+            photos = listOf(
+                HouseInfoPhotoEntity(
+                    id = "ph_1",
+                    entryId = "info_1",
+                    localFilePath = "/tmp/finestra.jpg",
+                    caption = "Vista interna",
+                    sortOrder = 0
                 )
             )
         )
-        val recipe = db.recipeDao().getByIdWithIngredients("rec_1")
-        assertNotNull(recipe)
-        assertEquals(1, recipe!!.ingredients.size)
+        val entry = db.houseInfoDao().getByIdWithPhotos("info_1")
+        assertNotNull(entry)
+        assertEquals(1, entry!!.photos.size)
+        assertEquals("Vista interna", entry.photos[0].caption)
     }
 
     @Test
@@ -259,6 +263,45 @@ class PantryDatabaseAndRepositoryTest {
             assertTrue(c.moveToFirst())
             assertEquals("Pane", c.getString(0))
             assertEquals("", c.getString(1))
+        }
+
+        rawDb.close()
+        context.deleteDatabase(dbName)
+    }
+
+    @Test
+    fun `migration 2 to 3 replaces recipes with house_info tables cleanly`() {
+        val dbName = "migration_2_3_test.db"
+        context.deleteDatabase(dbName)
+
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(2) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE recipes (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL)")
+                        db.execSQL("CREATE TABLE recipe_ingredients (id TEXT PRIMARY KEY NOT NULL, recipe_id TEXT NOT NULL)")
+                        db.execSQL("CREATE TABLE settings (id INTEGER PRIMARY KEY NOT NULL, theme_mode TEXT NOT NULL)")
+                        db.execSQL("INSERT INTO settings VALUES (1, 'LIGHT')")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+                })
+                .build()
+        )
+
+        val rawDb = helper.writableDatabase
+        PantryDatabase.MIGRATION_2_3.migrate(rawDb)
+
+        rawDb.query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('recipes','recipe_ingredients')").use { c ->
+            assertEquals(0, c.count)
+        }
+        rawDb.query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('house_info_entries','house_info_photos')").use { c ->
+            assertEquals(2, c.count)
+        }
+        rawDb.query("SELECT theme_mode FROM settings WHERE id = 1").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("LIGHT", c.getString(0))
         }
 
         rawDb.close()

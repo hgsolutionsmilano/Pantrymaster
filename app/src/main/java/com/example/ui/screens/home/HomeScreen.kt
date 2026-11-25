@@ -24,13 +24,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.HomeWork
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -48,27 +53,42 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.local.relation.BatchWithProduct
+import com.example.data.local.relation.HouseInfoWithPhotos
+import com.example.domain.model.HouseInfoCategory
+import com.example.domain.usecase.HouseInfoFormatter
 import com.example.domain.usecase.UnitConverter
 import com.example.ui.components.ExpiryBadge
 import com.example.ui.components.PantryEmptyState
 import com.example.ui.components.ProductThumbnail
+import com.example.ui.screens.info.HouseInfoCategoryBadge
+import com.example.ui.screens.info.launchPhoneDialer
 import com.example.ui.theme.LocalPantryColors
+import kotlinx.coroutines.delay
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +99,8 @@ fun HomeScreen(
     onOpenProduct: (String) -> Unit,
     onOpenPantry: () -> Unit,
     onOpenShopping: () -> Unit,
-    onOpenRecipe: (String) -> Unit,
+    onOpenInfo: () -> Unit,
+    onOpenInfoDetail: (String) -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
@@ -347,65 +368,80 @@ fun HomeScreen(
                 }
             }
 
-            // Consumption Suggestions & Expiring Recipe Matches
-            if (state.suggestedRecipes.isNotEmpty() || state.lowStockSuggestions.isNotEmpty()) {
-                item {
-                    SectionHeader(
-                        title = "Suggerimenti di consumo",
-                        actionLabel = null,
-                        onAction = null
-                    )
-                }
+            // Second Home quick access ("In evidenza dalla casa")
+            item {
+                SectionHeader(
+                    title = "In evidenza dalla casa",
+                    actionLabel = "Apri Info",
+                    onAction = onOpenInfo
+                )
+            }
 
-                if (state.suggestedRecipes.isNotEmpty()) {
-                    item {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+            if (state.pinnedHouseInfo.isNotEmpty()) {
+                item {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(state.pinnedHouseInfo, key = { it.entry.id }) { infoItem ->
+                            PinnedHouseInfoCard(
+                                item = infoItem,
+                                onOpenDetail = { onOpenInfoDetail(infoItem.entry.id) }
+                            )
+                        }
+                    }
+                }
+            } else {
+                item {
+                    Card(
+                        onClick = onOpenInfo,
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home_info_empty_card")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
                         ) {
-                            items(state.suggestedRecipes, key = { it.recipeWithIngredients.recipe.id }) { evaluated ->
-                                val recipe = evaluated.recipeWithIngredients.recipe
-                                Card(
-                                    onClick = { onOpenRecipe(recipe.id) },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                                    ),
-                                    shape = RoundedCornerShape(18.dp),
-                                    modifier = Modifier.width(240.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                Icons.Default.RestaurantMenu,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "${evaluated.evaluation.availabilityPercent}% ingredienti",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = recipe.name,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        if (evaluated.evaluation.usesExpiringProductsCount > 0) {
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "Usa ${evaluated.evaluation.usesExpiringProductsCount} prodotti in scadenza",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = semantics.warning
-                                            )
-                                        }
-                                    }
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.HomeWork,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
                                 }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (state.totalHouseInfoCount == 0) {
+                                        "Schede della seconda casa"
+                                    } else {
+                                        "${state.totalHouseInfoCount} schede salvate in Info"
+                                    },
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = if (state.totalHouseInfoCount == 0) {
+                                        "Salva numeri utili, misure, foto impianti, password Wi-Fi e codici."
+                                    } else {
+                                        "Fissa le schede più importanti per averle subito qui in Home."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
@@ -765,6 +801,205 @@ private fun RecentProductsCard(
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PinnedHouseInfoCard(
+    item: HouseInfoWithPhotos,
+    onOpenDetail: () -> Unit
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val entry = item.entry
+    val photos = item.sortedPhotos
+    var revealSecret by remember(entry.id) { mutableStateOf(false) }
+    var copiedNotice by remember(entry.id) { mutableStateOf(false) }
+
+    LaunchedEffect(copiedNotice) {
+        if (copiedNotice) {
+            delay(1500)
+            copiedNotice = false
+        }
+    }
+
+    Card(
+        onClick = onOpenDetail,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier
+            .width(268.dp)
+            .testTag("home_pinned_info_${entry.id}")
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            HouseInfoCategoryBadge(category = entry.category)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = entry.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (entry.subtitle.isNotBlank()) {
+                Text(
+                    text = entry.subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+
+            when (entry.category) {
+                HouseInfoCategory.PHONE_NUMBER -> {
+                    Text(
+                        text = entry.primaryValue.ifBlank { "Numero non indicato" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (entry.primaryValue.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        FilledTonalButton(
+                            onClick = { launchPhoneDialer(context, entry.primaryValue) },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 48.dp)
+                                .testTag("home_info_call_${entry.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Phone,
+                                contentDescription = "Chiama ${entry.title}",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Chiama", maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+
+                HouseInfoCategory.MEASUREMENT -> {
+                    val dims = HouseInfoFormatter.formatDimensions(entry)
+                    Text(
+                        text = dims.ifBlank { entry.primaryValue.ifBlank { entry.notes.ifBlank { "Apri misure" } } },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (dims.isNotBlank() && entry.primaryValue.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = entry.primaryValue,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                HouseInfoCategory.PHOTO_DETAIL -> {
+                    val cover = photos.firstOrNull()?.localFilePath?.takeIf { File(it).exists() }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (cover != null) {
+                            AsyncImage(
+                                model = File(cover),
+                                contentDescription = entry.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${photos.size} foto salvate",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (entry.primaryValue.isNotBlank()) {
+                                Text(
+                                    text = entry.primaryValue,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HouseInfoCategory.PASSWORD_NOTE -> {
+                    if (entry.primaryValue.isNotBlank()) {
+                        Text(
+                            text = entry.primaryValue,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (entry.secretValue.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = if (revealSecret) entry.secretValue else HouseInfoFormatter.maskSecret(entry.secretValue),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { revealSecret = !revealSecret },
+                                modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (revealSecret) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (revealSecret) "Nascondi codice" else "Mostra codice",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(entry.secretValue))
+                                    copiedNotice = true
+                                },
+                                modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (copiedNotice) Icons.Default.Check else Icons.Default.ContentCopy,
+                                    contentDescription = "Copia codice",
+                                    tint = if (copiedNotice) LocalPantryColors.current.fresh else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    } else if (entry.notes.isNotBlank()) {
+                        Text(
+                            text = entry.notes,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
