@@ -11,6 +11,8 @@ import com.example.data.repository.AppUpdateRepository
 import com.example.data.repository.AppUpdateStatus
 import com.example.data.repository.BackupOperationResult
 import com.example.data.repository.BackupRepository
+import com.example.data.repository.InAppUpdateDownloadState
+import com.example.data.repository.InAppUpdateManager
 import com.example.data.repository.SettingsRepository
 import com.example.data.worker.ExpiryNotificationWorker
 import com.example.data.worker.WorkScheduler
@@ -36,7 +38,8 @@ data class SettingsUiState(
     val autoUpdateEnabled: Boolean = true,
     val effectiveGithubRepo: String = "",
     val lastUpdateCheckAt: Long = 0L,
-    val updateStatus: AppUpdateStatus = AppUpdateStatus.Idle
+    val updateStatus: AppUpdateStatus = AppUpdateStatus.Idle,
+    val downloadState: InAppUpdateDownloadState = InAppUpdateDownloadState.Idle
 )
 
 @HiltViewModel
@@ -44,6 +47,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val backupRepository: BackupRepository,
     private val appUpdateRepository: AppUpdateRepository,
+    private val inAppUpdateManager: InAppUpdateManager,
     private val userPreferencesDataStore: UserPreferencesDataStore,
     private val workScheduler: WorkScheduler
 ) : ViewModel() {
@@ -62,9 +66,10 @@ class SettingsViewModel @Inject constructor(
             appUpdateRepository.autoUpdateEnabled,
             appUpdateRepository.effectiveRepositorySlug,
             appUpdateRepository.lastUpdateCheckAt,
-            _updateStatus
-        ) { autoUpdate, repo, lastCheck, status ->
-            UpdateSettingsSlice(autoUpdate, repo, lastCheck, status)
+            _updateStatus,
+            inAppUpdateManager.state
+        ) { autoUpdate, repo, lastCheck, status, dlState ->
+            UpdateSettingsSlice(autoUpdate, repo, lastCheck, status, dlState)
         }
     ) { settings, categories, homeTitle, busy, updateSlice ->
         SettingsUiState(
@@ -75,7 +80,8 @@ class SettingsViewModel @Inject constructor(
             autoUpdateEnabled = updateSlice.autoUpdate,
             effectiveGithubRepo = updateSlice.repo,
             lastUpdateCheckAt = updateSlice.lastCheck,
-            updateStatus = updateSlice.status
+            updateStatus = updateSlice.status,
+            downloadState = updateSlice.downloadState
         )
     }.stateIn(
         scope = viewModelScope,
@@ -87,7 +93,8 @@ class SettingsViewModel @Inject constructor(
         val autoUpdate: Boolean,
         val repo: String,
         val lastCheck: Long,
-        val status: AppUpdateStatus
+        val status: AppUpdateStatus,
+        val downloadState: InAppUpdateDownloadState
     )
 
     fun setTheme(theme: ThemePreference) {
@@ -262,6 +269,17 @@ class SettingsViewModel @Inject constructor(
             val result = appUpdateRepository.checkForUpdates(force = true)
             _updateStatus.value = result
         }
+    }
+
+    fun startInAppUpdateDownload(forceRestart: Boolean = false) {
+        val info = (_updateStatus.value as? AppUpdateStatus.UpdateAvailable)?.info ?: return
+        inAppUpdateManager.startBackgroundDownload(info, forceRestart = forceRestart)
+    }
+
+    fun canRequestPackageInstalls(): Boolean = inAppUpdateManager.canRequestPackageInstalls()
+
+    fun installDownloadedUpdate() {
+        inAppUpdateManager.installDownloadedUpdate()
     }
 
     fun clearMessage() {

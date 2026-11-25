@@ -1,8 +1,11 @@
 package com.example.ui.navigation
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -65,7 +68,6 @@ import com.example.ui.screens.settings.AppUpdateAvailableDialog
 import com.example.ui.screens.settings.AppUpdateViewModel
 import com.example.ui.screens.settings.CategoryManagerScreen
 import com.example.ui.screens.settings.SettingsScreen
-import com.example.ui.screens.settings.openExternalUpdateUrl
 import com.example.ui.screens.shopping.ShoppingScreen
 import com.example.ui.screens.stats.StatsScreen
 
@@ -94,7 +96,7 @@ fun PantryMasterNavHost(
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val availableUpdate by updateViewModel.availableUpdate.collectAsStateWithLifecycle()
+    val startupDialogState by updateViewModel.startupDialogState.collectAsStateWithLifecycle()
     val notificationsEnabled by updateViewModel.notificationsEnabled.collectAsStateWithLifecycle()
     var promptedNotificationPermission by rememberSaveable { mutableStateOf(false) }
 
@@ -106,8 +108,29 @@ fun PantryMasterNavHost(
         }
     }
 
+    val unknownSourcesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (updateViewModel.canRequestPackageInstalls()) {
+            updateViewModel.installReadyUpdate()
+        }
+    }
+
     LaunchedEffect(Unit) {
         updateViewModel.checkOnStartup()
+    }
+
+    LaunchedEffect(updateViewModel) {
+        updateViewModel.installPromptIntents.collect { confirmIntent ->
+            runCatching {
+                context.startActivity(confirmIntent)
+            }.onFailure {
+                runCatching {
+                    confirmIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(confirmIntent)
+                }
+            }
+        }
     }
 
     LaunchedEffect(notificationsEnabled) {
@@ -124,15 +147,27 @@ fun PantryMasterNavHost(
         }
     }
 
-    availableUpdate?.let { info ->
+    startupDialogState?.let { dialog ->
+        val canInstall = updateViewModel.canRequestPackageInstalls()
         AppUpdateAvailableDialog(
-            updateInfo = info,
-            onDownloadClick = {
-                openExternalUpdateUrl(context, info.preferredOpenUrl)
-                updateViewModel.remindLater()
+            updateInfo = dialog.updateInfo,
+            downloadState = dialog.downloadState,
+            canInstallPackages = canInstall,
+            onInstallClick = {
+                if (updateViewModel.canRequestPackageInstalls()) {
+                    updateViewModel.installReadyUpdate()
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val settingsIntent = Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:${context.packageName}")
+                    )
+                    unknownSourcesLauncher.launch(settingsIntent)
+                }
             },
+            onContinueInBackground = updateViewModel::continueInBackground,
+            onRetryClick = updateViewModel::retryDownload,
             onRemindLater = updateViewModel::remindLater,
-            onIgnoreVersion = { updateViewModel.ignoreVersion(info.tagName) }
+            onIgnoreVersion = { updateViewModel.ignoreVersion(dialog.updateInfo.tagName) }
         )
     }
 

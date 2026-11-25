@@ -33,13 +33,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.UploadFile
@@ -90,8 +92,10 @@ import com.example.BuildConfig
 import com.example.R
 import com.example.data.preferences.UserPreferencesDataStore
 import com.example.data.repository.AppUpdateStatus
+import com.example.data.repository.InAppUpdateDownloadState
 import com.example.data.worker.ExpiryNotificationWorker
 import com.example.domain.model.ThemePreference
+import com.example.domain.usecase.AppVersionComparator
 import com.example.ui.components.PantryFlowRow
 import com.example.ui.components.UnitDropdownField
 import kotlinx.coroutines.launch
@@ -169,6 +173,14 @@ fun SettingsScreen(
     val openJsonLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(viewModel::importJson) }
+
+    val unknownSourcesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (viewModel.canRequestPackageInstalls()) {
+            viewModel.installDownloadedUpdate()
+        }
+    }
 
     val s = state.settings
 
@@ -672,15 +684,97 @@ fun SettingsScreen(
                                             maxLines = 4
                                         )
                                     }
-                                    Button(
-                                        onClick = {
-                                            openExternalUpdateUrl(context, status.info.preferredOpenUrl)
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Apri e scarica release")
+
+                                    when (val dlState = state.downloadState) {
+                                        is InAppUpdateDownloadState.Downloading -> {
+                                            if (dlState.progress != null) {
+                                                LinearProgressIndicator(
+                                                    progress = { dlState.progress },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            } else {
+                                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                            }
+                                            val pctText = dlState.progress?.let { "${(it * 100).toInt()}% • " }.orEmpty()
+                                            Text(
+                                                text = "${pctText}${AppVersionComparator.formatBytes(dlState.downloadedBytes)} scaricati",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+
+                                        is InAppUpdateDownloadState.ReadyToInstall -> {
+                                            Button(
+                                                onClick = {
+                                                    if (viewModel.canRequestPackageInstalls()) {
+                                                        viewModel.installDownloadedUpdate()
+                                                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                        val settingsIntent = Intent(
+                                                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                                            Uri.parse("package:${context.packageName}")
+                                                        )
+                                                        unknownSourcesLauncher.launch(settingsIntent)
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .defaultMinSize(minHeight = 48.dp)
+                                            ) {
+                                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    if (viewModel.canRequestPackageInstalls()) "Aggiorna ora"
+                                                    else "Abilita e installa"
+                                                )
+                                            }
+                                        }
+
+                                        is InAppUpdateDownloadState.Installing -> {
+                                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                            Text(
+                                                text = "Avvio installazione...",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+
+                                        is InAppUpdateDownloadState.Error -> {
+                                            Text(
+                                                text = dlState.message,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                            Button(
+                                                onClick = { viewModel.startInAppUpdateDownload(forceRestart = true) },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .defaultMinSize(minHeight = 48.dp)
+                                            ) {
+                                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("Riprova download")
+                                            }
+                                        }
+
+                                        InAppUpdateDownloadState.Idle -> {
+                                            Button(
+                                                onClick = { viewModel.startInAppUpdateDownload() },
+                                                enabled = !status.info.apkDownloadUrl.isNullOrBlank(),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .defaultMinSize(minHeight = 48.dp)
+                                            ) {
+                                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    if (status.info.apkDownloadUrl.isNullOrBlank()) {
+                                                        "Pacchetto APK non disponibile"
+                                                    } else {
+                                                        "Scarica aggiornamento in app"
+                                                    }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }

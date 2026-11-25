@@ -19,6 +19,8 @@ import com.example.data.local.entity.ProductBatchEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.StorageLocationEntity
 import com.example.data.local.relation.ProductWithDetails
+import com.example.data.repository.AppUpdateInfo
+import com.example.data.repository.InAppUpdateDownloadState
 import com.example.domain.model.ExpiryType
 import com.example.domain.model.LocationType
 import com.example.domain.model.UnitOfMeasure
@@ -32,6 +34,7 @@ import com.example.ui.screens.scanner.BarcodeLookupAsyncState
 import com.example.ui.screens.scanner.ExpiryCaptureBottomCard
 import com.example.ui.screens.scanner.OcrCaptureStatus
 import com.example.ui.screens.scanner.ScannerUiState
+import com.example.ui.screens.settings.AppUpdateAvailableDialog
 import com.example.ui.theme.PantryMasterTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -39,6 +42,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -202,6 +206,45 @@ class PantryUiSmokeTest {
         composeRule.onNodeWithTag("confirm_ocr_expiry_button").assertIsDisplayed()
         composeRule.onNodeWithTag("use_historical_estimate_button").assertIsDisplayed()
         composeRule.onNodeWithTag("ocr_retry_button").assertIsDisplayed()
+    }
+
+    @Test
+    fun appUpdateDialog_showsBackgroundProgressThenReadyToInstallWithoutExternalLinks() {
+        val updateInfo = AppUpdateInfo(
+            currentVersion = "1.0.0",
+            latestVersion = "1.1.0",
+            latestBuildCode = 12,
+            tagName = "v1.1.0",
+            releaseTitle = "PantryMaster v1.1.0",
+            releaseNotes = "Aggiornamento in-app automatico",
+            releasePageUrl = "https://github.com/acme/PantryMaster/releases/tag/v1.1.0",
+            apkDownloadUrl = "https://github.com/acme/PantryMaster/releases/download/v1.1.0/app.apk",
+            apkFileName = "app.apk",
+            apkSizeBytes = 12_000_000L,
+            publishedAt = null
+        )
+
+        composeRule.setContent {
+            PantryMasterTheme {
+                AppUpdateAvailableDialog(
+                    updateInfo = updateInfo,
+                    downloadState = InAppUpdateDownloadState.ReadyToInstall(
+                        updateInfo = updateInfo,
+                        apkFile = File("/tmp/app.apk")
+                    ),
+                    canInstallPackages = true,
+                    onInstallClick = {},
+                    onContinueInBackground = {},
+                    onRetryClick = {},
+                    onRemindLater = {},
+                    onIgnoreVersion = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Aggiornamento pronto").assertIsDisplayed()
+        composeRule.onNodeWithTag("update_dialog_install_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("update_dialog_later_button").assertIsDisplayed()
     }
 }
 
