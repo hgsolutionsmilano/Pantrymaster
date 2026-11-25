@@ -3,6 +3,7 @@ package com.example.data.repository
 import com.example.data.local.ImageStorageManager
 import com.example.data.local.dao.CategoryDao
 import com.example.data.local.dao.ProductDao
+import com.example.data.local.dao.SettingsDao
 import com.example.data.local.db.DatabaseSeeder
 import com.example.data.local.entity.ProductEntity
 import com.example.data.remote.OpenFoodFactsApi
@@ -35,6 +36,7 @@ sealed class BarcodeLookupResult {
 class BarcodeRepository @Inject constructor(
     private val productDao: ProductDao,
     private val categoryDao: CategoryDao,
+    private val settingsDao: SettingsDao,
     private val openFoodFactsApi: OpenFoodFactsApi,
     private val imageStorageManager: ImageStorageManager
 ) {
@@ -70,7 +72,8 @@ class BarcodeRepository @Inject constructor(
             val imageUrl = dto.imageFrontUrl ?: dto.imageUrl
             val localPath = imageUrl?.let { imageStorageManager.downloadFromUrl(it) }
             val suggestedCategoryId = mapCategoryId(dto.categories, dto.categoriesTags)
-            val suggestedUnit = inferUnit(dto.quantity)
+            val defaultUnit = settingsDao.getSettings()?.defaultUnit ?: UnitOfMeasure.PIECES
+            val suggestedUnit = inferUnit(dto.quantity, defaultUnit)
 
             BarcodeLookupResult.RemoteProduct(
                 barcode = barcode,
@@ -131,14 +134,24 @@ class BarcodeRepository @Inject constructor(
 
     private fun String.containsAny(vararg needles: String): Boolean = needles.any { this.contains(it) }
 
-    private fun inferUnit(quantityStr: String?): UnitOfMeasure {
-        val q = quantityStr?.lowercase().orEmpty()
+    private fun inferUnit(quantityStr: String?, fallbackUnit: UnitOfMeasure): UnitOfMeasure {
+        val q = quantityStr?.lowercase()?.trim().orEmpty()
+        if (q.isBlank()) return fallbackUnit
         return when {
-            q.contains("ml") -> UnitOfMeasure.MILLILITERS
-            q.contains(" l") || q.endsWith("l") || q.contains("cl") -> UnitOfMeasure.LITERS
-            q.contains("kg") -> UnitOfMeasure.KILOGRAMS
-            q.contains("g") -> UnitOfMeasure.GRAMS
-            else -> UnitOfMeasure.PIECES
+            REGEX_ML.containsMatchIn(q) -> UnitOfMeasure.MILLILITERS
+            REGEX_LITERS.containsMatchIn(q) -> UnitOfMeasure.LITERS
+            REGEX_KG.containsMatchIn(q) -> UnitOfMeasure.KILOGRAMS
+            REGEX_GRAMS.containsMatchIn(q) -> UnitOfMeasure.GRAMS
+            REGEX_PIECES.containsMatchIn(q) -> UnitOfMeasure.PIECES
+            else -> fallbackUnit
         }
+    }
+
+    companion object {
+        private val REGEX_ML = Regex("""(?<![a-z])ml\b""")
+        private val REGEX_LITERS = Regex("""(?<![a-z])(l|lt|cl)\b""")
+        private val REGEX_KG = Regex("""(?<![a-z])kg\b""")
+        private val REGEX_GRAMS = Regex("""(?<![a-z])(g|gr)\b""")
+        private val REGEX_PIECES = Regex("""(?<![a-z])(pz|pezzi|pcs|uova|eggs?)\b""")
     }
 }

@@ -1,5 +1,10 @@
 package com.example.ui.navigation
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -29,10 +34,14 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -86,9 +95,33 @@ fun PantryMasterNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val availableUpdate by updateViewModel.availableUpdate.collectAsStateWithLifecycle()
+    val notificationsEnabled by updateViewModel.notificationsEnabled.collectAsStateWithLifecycle()
+    var promptedNotificationPermission by rememberSaveable { mutableStateOf(false) }
+
+    val startupNotificationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            updateViewModel.onNotificationPermissionGranted()
+        }
+    }
 
     LaunchedEffect(Unit) {
         updateViewModel.checkOnStartup()
+    }
+
+    LaunchedEffect(notificationsEnabled) {
+        if (!promptedNotificationPermission &&
+            notificationsEnabled &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            promptedNotificationPermission = true
+            startupNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     availableUpdate?.let { info ->

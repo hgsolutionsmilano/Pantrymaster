@@ -140,8 +140,12 @@ object ExpiryCalculator {
         todayMillis: Long,
         enabledThresholds: List<Int>
     ): Int? {
-        if (expiryDateMillis == null) return null
+        if (expiryDateMillis == null || enabledThresholds.isEmpty()) return null
         val days = PantryDateUtils.daysBetween(todayMillis, expiryDateMillis).toInt()
-        return enabledThresholds.sorted().firstOrNull { threshold -> days == threshold }
+        val sorted = enabledThresholds.sorted()
+        if (days < 0) {
+            return sorted.firstOrNull { it == 0 } ?: sorted.first()
+        }
+        return sorted.firstOrNull { threshold -> days <= threshold }
     }
 }

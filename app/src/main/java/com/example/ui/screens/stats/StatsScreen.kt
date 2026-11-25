@@ -114,11 +114,12 @@ fun StatsScreen(
             // KPI Summary
             item {
                 val snap = state.snapshot
+                val totalMovements = snap.purchasedCount + snap.consumedCount + snap.wastedCount
                 val cards = listOf(
                     Triple("Acquistati", String.format(Locale.ITALY, "%.1f", snap.purchasedQuantity), MaterialTheme.colorScheme.primary),
                     Triple("Consumati", String.format(Locale.ITALY, "%.1f", snap.consumedQuantity), semantics.fresh),
                     Triple("Sprecati", String.format(Locale.ITALY, "%.1f", snap.wastedQuantity), semantics.expired),
-                    Triple("Spesa", String.format(Locale.ITALY, "€ %.2f", snap.totalSpend), MaterialTheme.colorScheme.tertiary)
+                    Triple("Movimenti", totalMovements.toString(), MaterialTheme.colorScheme.tertiary)
                 )
                 if (isExpanded) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {

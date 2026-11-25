@@ -30,7 +30,8 @@ data class ShoppingUiState(
     val selectedListId: String? = null,
     val lowStockSuggestions: List<LowStockSuggestion> = emptyList(),
     val categories: List<CategoryEntity> = emptyList(),
-    val locations: List<StorageLocationEntity> = emptyList()
+    val locations: List<StorageLocationEntity> = emptyList(),
+    val defaultUnit: UnitOfMeasure = UnitOfMeasure.PIECES
 ) {
     val activeList: ShoppingListWithItems?
         get() = lists.firstOrNull { it.list.id == selectedListId } ?: lists.firstOrNull()
@@ -52,15 +53,19 @@ class ShoppingViewModel @Inject constructor(
         preferencesDataStore.selectedShoppingListId,
         shoppingRepository.observeLowStockSuggestions(),
         settingsRepository.observeCategories(),
-        settingsRepository.observeLocations()
-    ) { lists, selectedId, suggestions, categories, locations ->
+        combine(
+            settingsRepository.observeLocations(),
+            settingsRepository.observeSettings()
+        ) { locations, settings -> locations to settings.defaultUnit }
+    ) { lists, selectedId, suggestions, categories, locAndUnit ->
         ShoppingUiState(
             isLoading = false,
             lists = lists,
             selectedListId = selectedId,
             lowStockSuggestions = suggestions,
             categories = categories,
-            locations = locations
+            locations = locAndUnit.first,
+            defaultUnit = locAndUnit.second
         )
     }.stateIn(
         scope = viewModelScope,

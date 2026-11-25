@@ -36,21 +36,36 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.repository.AppUpdateInfo
 import com.example.data.repository.AppUpdateRepository
 import com.example.data.repository.AppUpdateStatus
+import com.example.data.repository.SettingsRepository
+import com.example.data.worker.WorkScheduler
 import com.example.domain.usecase.AppVersionComparator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class AppUpdateViewModel @Inject constructor(
-    private val appUpdateRepository: AppUpdateRepository
+    private val appUpdateRepository: AppUpdateRepository,
+    private val settingsRepository: SettingsRepository,
+    private val workScheduler: WorkScheduler
 ) : ViewModel() {
 
     private val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
     val availableUpdate: StateFlow<AppUpdateInfo?> = _availableUpdate.asStateFlow()
+
+    val notificationsEnabled: StateFlow<Boolean> = settingsRepository.observeSettings()
+        .map { it.notificationsEnabled }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true
+        )
 
     private var hasCheckedStartup = false
 
@@ -63,6 +78,11 @@ class AppUpdateViewModel @Inject constructor(
                 _availableUpdate.value = status.info
             }
         }
+    }
+
+    fun onNotificationPermissionGranted() {
+        workScheduler.scheduleDailyExpiryCheck()
+        workScheduler.triggerImmediateExpiryCheck(isManual = false)
     }
 
     fun remindLater() {

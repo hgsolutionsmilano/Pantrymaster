@@ -44,7 +44,8 @@ data class PantryListUiState(
     val categories: List<CategoryEntity> = emptyList(),
     val locations: List<StorageLocationEntity> = emptyList(),
     val filter: PantryFilterState = PantryFilterState(),
-    val isGridView: Boolean = false
+    val isGridView: Boolean = false,
+    val defaultUnit: UnitOfMeasure = UnitOfMeasure.PIECES
 )
 
 @HiltViewModel
@@ -67,8 +68,12 @@ class PantryViewModel @Inject constructor(
         settingsRepository.observeCategories(),
         settingsRepository.observeLocations(),
         _filterState,
-        preferencesDataStore.isPantryGridView
-    ) { allProducts, categories, locations, filter, isGrid ->
+        combine(
+            preferencesDataStore.isPantryGridView,
+            settingsRepository.observeSettings()
+        ) { isGrid, settings -> isGrid to settings.defaultUnit }
+    ) { allProducts, categories, locations, filter, prefsPair ->
+        val (isGrid, defaultUnit) = prefsPair
         val query = filter.searchQuery.trim().lowercase()
         val filtered = allProducts.filter { details ->
             val matchesQuery = query.isEmpty() ||
@@ -105,7 +110,8 @@ class PantryViewModel @Inject constructor(
             categories = categories,
             locations = locations,
             filter = filter,
-            isGridView = isGrid
+            isGridView = isGrid,
+            defaultUnit = defaultUnit
         )
     }.stateIn(
         scope = viewModelScope,
@@ -164,6 +170,7 @@ class PantryViewModel @Inject constructor(
         minStockQuantity: Double,
         notes: String,
         localImagePath: String?,
+        removeImage: Boolean = false,
         initialBatchQty: Double?,
         initialBatchExpiry: Long?,
         initialBatchExpiryType: ExpiryType,
@@ -188,7 +195,7 @@ class PantryViewModel @Inject constructor(
                     barcode = barcode?.trim()?.takeIf { it.isNotEmpty() },
                     categoryId = categoryId,
                     defaultLocationId = defaultLocationId,
-                    imageId = existing?.imageId,
+                    imageId = if (removeImage) null else existing?.imageId,
                     description = description.trim(),
                     unit = unit,
                     minStockQuantity = minStockQuantity.coerceAtLeast(0.0),
@@ -212,7 +219,8 @@ class PantryViewModel @Inject constructor(
                 val savedId = pantryRepository.saveProduct(
                     product = entity,
                     localImagePath = localImagePath,
-                    initialBatch = batchInput
+                    initialBatch = batchInput,
+                    removeImage = removeImage
                 )
                 if (batchInput != null) {
                     runCatching { workScheduler.triggerImmediateExpiryCheck() }

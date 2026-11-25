@@ -79,7 +79,6 @@ import com.example.ui.components.PantryDatePickerModal
 import com.example.ui.components.PantryEmptyState
 import com.example.ui.components.UnitDropdownField
 import com.example.ui.theme.LocalPantryColors
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -190,8 +189,6 @@ fun ShoppingScreen(
             } else {
                 val pendingItems = activeList.items.filter { !it.isPurchased }
                 val purchasedItems = activeList.items.filter { it.isPurchased }
-                val estimatedTotal = activeList.items.sumOf { (it.estimatedPrice ?: 0.0) }
-                val actualTotal = purchasedItems.sumOf { (it.actualPrice ?: it.estimatedPrice ?: 0.0) }
 
                 LazyColumn(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 92.dp),
@@ -240,7 +237,7 @@ fun ShoppingScreen(
                         }
                     }
 
-                    // Budget summary bar
+                    // Shopping list summary bar
                     item {
                         Card(
                             shape = RoundedCornerShape(16.dp),
@@ -261,18 +258,10 @@ fun ShoppingScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("Stima totale", style = MaterialTheme.typography.labelSmall)
-                                    Text(
-                                        text = String.format(Locale.ITALY, "€ %.2f", estimatedTotal),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text("Spesa effettiva", style = MaterialTheme.typography.labelSmall)
+                                    Text("Acquistati", style = MaterialTheme.typography.labelSmall)
                                     Text(
-                                        text = String.format(Locale.ITALY, "€ %.2f", actualTotal),
+                                        text = "${purchasedItems.size} articoli",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -287,7 +276,7 @@ fun ShoppingScreen(
                             PantryEmptyState(
                                 icon = Icons.Default.AddShoppingCart,
                                 title = "Lista vuota",
-                                subtitle = "Tocca + per aggiungere un articolo con quantità e prezzo previsto.",
+                                subtitle = "Tocca + per aggiungere un articolo con quantità e categoria.",
                                 actionLabel = "Aggiungi articolo",
                                 onAction = { showAddItemDialog = true }
                             )
@@ -370,7 +359,8 @@ fun ShoppingScreen(
     if (showAddItemDialog && activeList != null) {
         AddShoppingItemDialog(
             categories = state.categories,
-            onConfirm = { name, qty, unit, catId, estPrice, notes ->
+            defaultUnit = state.defaultUnit,
+            onConfirm = { name, qty, unit, catId, notes ->
                 viewModel.saveItem(
                     existingId = null,
                     listId = activeList.list.id,
@@ -378,7 +368,7 @@ fun ShoppingScreen(
                     quantity = qty,
                     unit = unit,
                     categoryId = catId,
-                    estimatedPrice = estPrice,
+                    estimatedPrice = null,
                     actualPrice = null,
                     notes = notes
                 )
@@ -392,8 +382,8 @@ fun ShoppingScreen(
         ConfirmAddToPantryDialog(
             item = item,
             locations = state.locations,
-            onConfirm = { locId, expiryDate, expiryType, price ->
-                viewModel.confirmMoveToPantry(item.id, locId, expiryDate, expiryType, price)
+            onConfirm = { locId, expiryDate, expiryType ->
+                viewModel.confirmMoveToPantry(item.id, locId, expiryDate, expiryType, null)
                 itemToMoveToPantry = null
             },
             onDismiss = { itemToMoveToPantry = null }
@@ -453,8 +443,6 @@ private fun ShoppingItemCard(
                     val meta = buildString {
                         append(UnitConverter.formatQuantity(item.quantity, item.unit))
                         if (!categoryName.isNullOrBlank()) append(" • $categoryName")
-                        val p = item.actualPrice ?: item.estimatedPrice
-                        if (p != null) append(String.format(Locale.ITALY, " • € %.2f", p))
                     }
                     Text(
                         text = meta,
@@ -508,14 +496,14 @@ private fun ShoppingItemCard(
 @Composable
 private fun AddShoppingItemDialog(
     categories: List<CategoryEntity>,
-    onConfirm: (String, Double, UnitOfMeasure, String?, Double?, String) -> Unit,
+    defaultUnit: UnitOfMeasure,
+    onConfirm: (String, Double, UnitOfMeasure, String?, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var qtyText by remember { mutableStateOf("1") }
-    var unit by remember { mutableStateOf(UnitOfMeasure.PIECES) }
+    var unit by remember(defaultUnit) { mutableStateOf(defaultUnit) }
     var categoryId by remember { mutableStateOf(categories.firstOrNull()?.id) }
-    var priceText by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -553,14 +541,6 @@ private fun AddShoppingItemDialog(
                     )
                 }
                 OutlinedTextField(
-                    value = priceText,
-                    onValueChange = { priceText = it },
-                    label = { Text("Prezzo previsto €") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
                     label = { Text("Note") },
@@ -578,7 +558,6 @@ private fun AddShoppingItemDialog(
                         qty,
                         unit,
                         categoryId,
-                        priceText.replace(",", ".").toDoubleOrNull(),
                         notes
                     )
                 }
@@ -596,15 +575,12 @@ private fun AddShoppingItemDialog(
 private fun ConfirmAddToPantryDialog(
     item: ShoppingItemEntity,
     locations: List<StorageLocationEntity>,
-    onConfirm: (String, Long?, ExpiryType, Double?) -> Unit,
+    onConfirm: (String, Long?, ExpiryType) -> Unit,
     onDismiss: () -> Unit
 ) {
     var locationId by remember { mutableStateOf(DatabaseSeeder.DEFAULT_LOCATION_PANTRY_ID) }
     var expiryDate by remember { mutableStateOf<Long?>(null) }
     var expiryType by remember { mutableStateOf(ExpiryType.USE_BY) }
-    var priceText by remember {
-        mutableStateOf((item.actualPrice ?: item.estimatedPrice)?.toString().orEmpty())
-    }
     var showPicker by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -635,14 +611,6 @@ private fun ConfirmAddToPantryDialog(
                         )
                     }
                 }
-                OutlinedTextField(
-                    value = priceText,
-                    onValueChange = { priceText = it },
-                    label = { Text("Prezzo effettivo €") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
         },
         confirmButton = {
@@ -650,8 +618,7 @@ private fun ConfirmAddToPantryDialog(
                 onConfirm(
                     locationId,
                     expiryDate,
-                    expiryType,
-                    priceText.replace(",", ".").toDoubleOrNull()
+                    expiryType
                 )
             }) {
                 Text("Conferma carico")

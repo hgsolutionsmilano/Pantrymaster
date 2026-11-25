@@ -3,6 +3,7 @@ package com.example.ui.screens.settings
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.SettingsEntity
 import com.example.data.preferences.UserPreferencesDataStore
@@ -11,6 +12,7 @@ import com.example.data.repository.AppUpdateStatus
 import com.example.data.repository.BackupOperationResult
 import com.example.data.repository.BackupRepository
 import com.example.data.repository.SettingsRepository
+import com.example.data.worker.ExpiryNotificationWorker
 import com.example.data.worker.WorkScheduler
 import com.example.domain.model.ThemePreference
 import com.example.domain.model.UnitOfMeasure
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -118,13 +121,36 @@ class SettingsViewModel @Inject constructor(
             settingsRepository.updateNotifications(enabled, notify7, notify3, notify1, notify0)
             if (enabled) {
                 workScheduler.scheduleDailyExpiryCheck()
+            } else {
+                workScheduler.cancelDailyExpiryCheck()
             }
         }
     }
 
     fun triggerExpiryCheckNow() {
-        workScheduler.triggerImmediateExpiryCheck()
-        _message.value = "Controllo scadenze avviato in background."
+        viewModelScope.launch {
+            val workId = workScheduler.triggerImmediateExpiryCheck(isManual = true)
+            val finalInfo = workScheduler.observeWorkInfo(workId)
+                .first { info -> info != null && info.state.isFinished }
+            if (finalInfo == null || finalInfo.state != WorkInfo.State.SUCCEEDED) {
+                _message.value = "Impossibile completare il controllo scadenze."
+                return@launch
+            }
+            val permitted = finalInfo.outputData.getBoolean(
+                ExpiryNotificationWorker.KEY_PERMISSION_GRANTED,
+                true
+            )
+            val notifiedCount = finalInfo.outputData.getInt(
+                ExpiryNotificationWorker.KEY_NOTIFIED_COUNT,
+                0
+            )
+            _message.value = when {
+                !permitted -> "Permesso notifiche non attivo sul dispositivo. Abilitalo dalle impostazioni."
+                notifiedCount == 1 -> "Notifica inviata per 1 prodotto in scadenza o scaduto."
+                notifiedCount > 1 -> "Notifica inviata per $notifiedCount prodotti in scadenza o scaduti."
+                else -> "Nessun prodotto in scadenza o oltre il termine per le soglie attive."
+            }
+        }
     }
 
     fun setDefaultUnit(unit: UnitOfMeasure) {

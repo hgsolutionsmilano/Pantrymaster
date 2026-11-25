@@ -6,17 +6,30 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.ListenableWorker
+import androidx.work.WorkerFactory
+import androidx.work.WorkerParameters
+import androidx.work.testing.TestListenableWorkerBuilder
+import androidx.work.workDataOf
 import com.example.data.local.ImageStorageManager
 import com.example.data.local.db.DatabaseSeeder
 import com.example.data.local.db.PantryDatabase
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.RecipeEntity
 import com.example.data.local.entity.RecipeIngredientEntity
+import com.example.data.local.entity.SettingsEntity
 import com.example.data.local.entity.ShoppingItemEntity
 import com.example.data.local.entity.ShoppingListEntity
+import com.example.data.preferences.UserPreferencesDataStore
+import com.example.data.remote.OpenFoodFactsApi
+import com.example.data.remote.OpenFoodFactsProductDto
+import com.example.data.remote.OpenFoodFactsResponse
+import com.example.data.repository.BarcodeLookupResult
+import com.example.data.repository.BarcodeRepository
 import com.example.data.repository.InventoryOperationResult
 import com.example.data.repository.NewBatchInput
 import com.example.data.repository.PantryRepository
+import com.example.data.worker.ExpiryNotificationWorker
 import com.example.domain.model.ExpiryType
 import com.example.domain.model.MovementType
 import com.example.domain.model.RecipeDifficulty
@@ -28,6 +41,7 @@ import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -289,5 +303,138 @@ class PantryDatabaseAndRepositoryTest {
         assertEquals("Latte Fresco Alta Qualità", updated!!.product.name)
         assertEquals(1, updated.activeBatches.size)
         assertEquals("/tmp/test_milk.jpg", updated.primaryImagePath)
+
+        // Removing the image explicitly clears primaryImagePath
+        repository.saveProduct(
+            product = updated.product,
+            localImagePath = null,
+            initialBatch = null,
+            removeImage = true
+        )
+        val cleared = db.productDao().getProductWithDetails(productId)
+        assertNotNull(cleared)
+        assertNull(cleared!!.primaryImagePath)
+        assertNull(cleared.product.imageId)
+    }
+
+    @Test
+    fun `barcode lookup uses preferred defaultUnit when remote quantity has no explicit unit`() = runTest {
+        db.categoryDao().insertAll(DatabaseSeeder.defaultCategories())
+        db.settingsDao().upsert(SettingsEntity(id = 1, defaultUnit = UnitOfMeasure.GRAMS))
+
+        val fakeApi = object : OpenFoodFactsApi {
+            override suspend fun getProductByBarcode(barcode: String): OpenFoodFactsResponse {
+                val qty = when (barcode) {
+                    "8001" -> "original taste" // contains 'g' & 'l' letters inside words, must fallback!
+                    "8002" -> "500 g"
+                    else -> null
+                }
+                return OpenFoodFactsResponse(
+                    code = barcode,
+                    status = 1,
+                    product = OpenFoodFactsProductDto(
+                        productNameIt = "Prodotto Test $barcode",
+                        quantity = qty
+                    )
+                )
+            }
+        }
+        val barcodeRepo = BarcodeRepository(
+            productDao = db.productDao(),
+            categoryDao = db.categoryDao(),
+            settingsDao = db.settingsDao(),
+            openFoodFactsApi = fakeApi,
+            imageStorageManager = ImageStorageManager(context, OkHttpClient())
+        )
+
+        val fallbackRes = barcodeRepo.lookupBarcode("8001")
+        assertTrue(fallbackRes is BarcodeLookupResult.RemoteProduct)
+        assertEquals(UnitOfMeasure.GRAMS, (fallbackRes as BarcodeLookupResult.RemoteProduct).suggestedUnit)
+
+        val explicitRes = barcodeRepo.lookupBarcode("8002")
+        assertTrue(explicitRes is BarcodeLookupResult.RemoteProduct)
+        assertEquals(UnitOfMeasure.GRAMS, (explicitRes as BarcodeLookupResult.RemoteProduct).suggestedUnit)
+
+        db.settingsDao().upsert(SettingsEntity(id = 1, defaultUnit = UnitOfMeasure.MILLILITERS))
+        val blankRes = barcodeRepo.lookupBarcode("8003")
+        assertTrue(blankRes is BarcodeLookupResult.RemoteProduct)
+        assertEquals(UnitOfMeasure.MILLILITERS, (blankRes as BarcodeLookupResult.RemoteProduct).suggestedUnit)
+    }
+
+    @Test
+    fun `expiry worker matches intermediate days and supports manual retrigger`() = runTest {
+        db.storageLocationDao().insertAll(DatabaseSeeder.defaultLocations())
+        db.categoryDao().insertAll(DatabaseSeeder.defaultCategories())
+        db.settingsDao().upsert(
+            SettingsEntity(
+                id = 1,
+                notificationsEnabled = true,
+                notify7Days = true,
+                notify3Days = true,
+                notify1Day = true,
+                notify0Days = true
+            )
+        )
+
+        val today = PantryDateUtils.todayStartMillis()
+        repository.saveProduct(
+            product = ProductEntity(
+                id = "prod_yogurt",
+                name = "Yogurt Greco",
+                categoryId = "cat_dairy",
+                defaultLocationId = "loc_fridge",
+                unit = UnitOfMeasure.PIECES
+            ),
+            initialBatch = NewBatchInput(
+                quantity = 2.0,
+                unit = UnitOfMeasure.PIECES,
+                purchaseDate = today,
+                expiryDate = PantryDateUtils.addDays(today, 5),
+                expiryType = ExpiryType.USE_BY,
+                locationId = "loc_fridge"
+            )
+        )
+
+        val prefs = UserPreferencesDataStore(context)
+        val factory = object : WorkerFactory() {
+            override fun createWorker(
+                appContext: Context,
+                workerClassName: String,
+                workerParameters: WorkerParameters
+            ): ListenableWorker {
+                return ExpiryNotificationWorker(
+                    appContext = appContext,
+                    params = workerParameters,
+                    batchDao = db.productBatchDao(),
+                    reminderDao = db.reminderDao(),
+                    settingsDao = db.settingsDao(),
+                    preferencesDataStore = prefs
+                )
+            }
+        }
+
+        val firstWorker = TestListenableWorkerBuilder<ExpiryNotificationWorker>(context)
+            .setWorkerFactory(factory)
+            .setInputData(workDataOf(ExpiryNotificationWorker.KEY_MANUAL_TRIGGER to false))
+            .build()
+        val firstRes = firstWorker.doWork()
+        assertTrue(firstRes is ListenableWorker.Result.Success)
+        assertEquals(1, (firstRes as ListenableWorker.Result.Success).outputData.getInt(ExpiryNotificationWorker.KEY_NOTIFIED_COUNT, 0))
+
+        // Automatic second run should skip already-notified threshold
+        val autoRepeatWorker = TestListenableWorkerBuilder<ExpiryNotificationWorker>(context)
+            .setWorkerFactory(factory)
+            .setInputData(workDataOf(ExpiryNotificationWorker.KEY_MANUAL_TRIGGER to false))
+            .build()
+        val repeatRes = autoRepeatWorker.doWork() as ListenableWorker.Result.Success
+        assertEquals(0, repeatRes.outputData.getInt(ExpiryNotificationWorker.KEY_NOTIFIED_COUNT, -1))
+
+        // Manual trigger should still report active alert
+        val manualWorker = TestListenableWorkerBuilder<ExpiryNotificationWorker>(context)
+            .setWorkerFactory(factory)
+            .setInputData(workDataOf(ExpiryNotificationWorker.KEY_MANUAL_TRIGGER to true))
+            .build()
+        val manualRes = manualWorker.doWork() as ListenableWorker.Result.Success
+        assertEquals(1, manualRes.outputData.getInt(ExpiryNotificationWorker.KEY_NOTIFIED_COUNT, 0))
     }
 }

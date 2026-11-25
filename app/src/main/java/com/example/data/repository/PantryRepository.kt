@@ -81,7 +81,8 @@ class PantryRepository @Inject constructor(
         product: ProductEntity,
         localImagePath: String? = null,
         sourceImageUrl: String? = null,
-        initialBatch: NewBatchInput? = null
+        initialBatch: NewBatchInput? = null,
+        removeImage: Boolean = false
     ): String {
         val finalProductId = product.id.ifBlank { UUID.randomUUID().toString() }
         database.withTransaction {
@@ -122,7 +123,12 @@ class PantryRepository @Inject constructor(
                 productDao.update(normalized)
             }
 
-            if (!localImagePath.isNullOrBlank()) {
+            if (removeImage) {
+                val oldImages = productImageDao.getForProduct(finalProductId)
+                oldImages.forEach { imageStorageManager.deleteImageFile(it.localFilePath) }
+                productImageDao.deleteForProduct(finalProductId)
+                productDao.update(normalized.copy(imageId = null))
+            } else if (!localImagePath.isNullOrBlank()) {
                 val oldImages = productImageDao.getForProduct(finalProductId)
                 oldImages.forEach { old ->
                     if (old.localFilePath != localImagePath) {

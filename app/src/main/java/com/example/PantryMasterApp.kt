@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.example.data.local.db.DatabaseSeeder
+import com.example.data.worker.ExpiryNotificationWorker
 import com.example.data.worker.WorkScheduler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -33,9 +34,11 @@ class PantryMasterApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        ExpiryNotificationWorker.ensureNotificationChannel(this)
         appScope.launch {
             databaseSeeder.ensureSeeded()
             workScheduler.scheduleDailyExpiryCheck()
+            workScheduler.triggerImmediateExpiryCheck(isManual = false)
             workScheduler.schedulePeriodicUpdateCheck()
         }
     }

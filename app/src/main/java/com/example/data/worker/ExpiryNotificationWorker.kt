@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.example.MainActivity
 import com.example.R
 import com.example.data.local.dao.ProductBatchDao
@@ -40,9 +41,10 @@ class ExpiryNotificationWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
+        val isManual = inputData.getBoolean(KEY_MANUAL_TRIGGER, false)
         val settings = settingsDao.getSettings() ?: SettingsEntity(id = 1)
-        if (!settings.notificationsEnabled) {
-            return Result.success()
+        if (!settings.notificationsEnabled && !isManual) {
+            return Result.success(workDataOf(KEY_NOTIFIED_COUNT to 0))
         }
 
         val enabledThresholds = buildList {
@@ -52,10 +54,10 @@ class ExpiryNotificationWorker @AssistedInject constructor(
             if (settings.notify0Days) add(0)
         }
         if (enabledThresholds.isEmpty()) {
-            return Result.success()
+            return Result.success(workDataOf(KEY_NOTIFIED_COUNT to 0))
         }
 
-        ensureNotificationChannel()
+        ensureNotificationChannel(applicationContext)
 
         val today = PantryDateUtils.todayStartMillis()
         val batches = batchDao.getActiveBatchesWithExpiry()
@@ -72,19 +74,22 @@ class ExpiryNotificationWorker @AssistedInject constructor(
             ) ?: continue
 
             val existing = reminderDao.getForBatchAndThreshold(batch.id, matchedThreshold)
-            if (existing?.notifiedAt != null || existing?.isDismissed == true) {
+            if (!isManual && (existing?.notifiedAt != null || existing?.isDismissed == true)) {
                 continue
             }
 
+            val daysRemaining = PantryDateUtils.daysBetween(today, expiryDate).toInt()
             val dateKind = if (batch.expiryType == ExpiryType.BEST_BEFORE) {
-                "Termine minimo di conservazione (TMC)"
+                "TMC"
             } else {
-                "Data di scadenza"
+                "Scadenza"
             }
-            val whenLabel = when (matchedThreshold) {
-                0 -> "oggi"
-                1 -> "domani"
-                else -> "tra $matchedThreshold giorni"
+            val whenLabel = when {
+                daysRemaining < -1 -> "superato da ${-daysRemaining} giorni"
+                daysRemaining == -1 -> "superato ieri"
+                daysRemaining == 0 -> "oggi"
+                daysRemaining == 1 -> "domani"
+                else -> "tra $daysRemaining giorni"
             }
             pendingAlerts.add(
                 product.name to "$dateKind $whenLabel (${PantryDateUtils.formatShortDate(expiryDate)})"
@@ -102,37 +107,18 @@ class ExpiryNotificationWorker @AssistedInject constructor(
             )
         }
 
-        if (pendingAlerts.isNotEmpty() && canPostNotifications()) {
+        val permitted = canPostNotifications(applicationContext)
+        if (pendingAlerts.isNotEmpty() && permitted) {
             sendGroupedOrSingleNotification(pendingAlerts)
         }
 
         preferencesDataStore.setLastNotificationCheck(System.currentTimeMillis())
-        return Result.success()
-    }
-
-    private fun canPostNotifications(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                applicationContext,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            NotificationManagerCompat.from(applicationContext).areNotificationsEnabled()
-        }
-    }
-
-    private fun ensureNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                applicationContext.getString(R.string.notification_channel_expiry_name),
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = applicationContext.getString(R.string.notification_channel_expiry_desc)
-            }
-            manager.createNotificationChannel(channel)
-        }
+        return Result.success(
+            workDataOf(
+                KEY_NOTIFIED_COUNT to pendingAlerts.size,
+                KEY_PERMISSION_GRANTED to permitted
+            )
+        )
     }
 
     private fun sendGroupedOrSingleNotification(alerts: List<Pair<String, String>>) {
@@ -147,7 +133,7 @@ class ExpiryNotificationWorker @AssistedInject constructor(
         )
 
         val title = if (alerts.size == 1) {
-            "Promemoria PantryMaster: ${alerts.first().first}"
+            "Promemoria: ${alerts.first().first}"
         } else {
             "${alerts.size} alimenti prossimi alla scadenza o TMC"
         }
@@ -163,7 +149,7 @@ class ExpiryNotificationWorker @AssistedInject constructor(
         }
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_pantry)
             .setContentTitle(title)
             .setContentText(content)
             .setStyle(inboxStyle)
@@ -177,6 +163,35 @@ class ExpiryNotificationWorker @AssistedInject constructor(
 
     companion object {
         const val CHANNEL_ID = "pantrymaster_expiry_alerts"
+        const val KEY_MANUAL_TRIGGER = "manual_trigger"
+        const val KEY_NOTIFIED_COUNT = "notified_count"
+        const val KEY_PERMISSION_GRANTED = "permission_granted"
         private const val NOTIFICATION_ID = 4021
+
+        fun canPostNotifications(context: Context): Boolean {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED &&
+                    NotificationManagerCompat.from(context).areNotificationsEnabled()
+            } else {
+                NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }
+        }
+
+        fun ensureNotificationChannel(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    context.getString(R.string.notification_channel_expiry_name),
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = context.getString(R.string.notification_channel_expiry_desc)
+                }
+                manager.createNotificationChannel(channel)
+            }
+        }
     }
 }

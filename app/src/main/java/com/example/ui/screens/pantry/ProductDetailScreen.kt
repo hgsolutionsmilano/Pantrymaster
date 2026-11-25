@@ -74,7 +74,6 @@ import com.example.ui.components.ExpiryBadge
 import com.example.ui.components.LocationSelectorRow
 import com.example.ui.components.PantryDatePickerModal
 import com.example.ui.components.ProductThumbnail
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -573,13 +572,6 @@ private fun BatchCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    batch.purchasePrice?.let { price ->
-                        Text(
-                            text = String.format(Locale.ITALY, "Prezzo: € %.2f", price),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
@@ -713,7 +705,6 @@ private fun AddBatchDialog(
     onDismiss: () -> Unit
 ) {
     var qtyText by remember { mutableStateOf("1") }
-    var priceText by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
     var locationId by remember { mutableStateOf(defaultLocationId) }
     var expiryDate by remember { mutableStateOf<Long?>(null) }
@@ -730,14 +721,6 @@ private fun AddBatchDialog(
                     value = qtyText,
                     onValueChange = { qtyText = it },
                     label = { Text("Quantità (${defaultUnit.symbol})") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = priceText,
-                    onValueChange = { priceText = it },
-                    label = { Text("Prezzo acquisto € (opzionale)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -789,8 +772,7 @@ private fun AddBatchDialog(
                 onClick = {
                     val qty = qtyText.replace(",", ".").toDoubleOrNull() ?: 0.0
                     if (qty > 0.0) {
-                        val price = priceText.replace(",", ".").toDoubleOrNull()
-                        onConfirm(qty, expiryDate, expiryType, locationId, price, notes, isPurchase)
+                        onConfirm(qty, expiryDate, expiryType, locationId, null, notes, isPurchase)
                     }
                 }
             ) {
@@ -895,7 +877,6 @@ private fun EditBatchDatesDialog(
 ) {
     var expiryDate by remember { mutableStateOf(batch.expiryDate) }
     var expiryType by remember { mutableStateOf(batch.expiryType) }
-    var priceText by remember { mutableStateOf(batch.purchasePrice?.toString().orEmpty()) }
     var notes by remember { mutableStateOf(batch.notes) }
     var showPicker by remember { mutableStateOf(false) }
 
@@ -935,14 +916,6 @@ private fun EditBatchDatesDialog(
                     }
                 }
                 OutlinedTextField(
-                    value = priceText,
-                    onValueChange = { priceText = it },
-                    label = { Text("Prezzo €") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
                     label = { Text("Note") },
@@ -953,8 +926,7 @@ private fun EditBatchDatesDialog(
         },
         confirmButton = {
             Button(onClick = {
-                val price = priceText.replace(",", ".").toDoubleOrNull()
-                onConfirm(expiryDate, expiryType, price, notes)
+                onConfirm(expiryDate, expiryType, null, notes)
             }) {
                 Text("Salva")
             }

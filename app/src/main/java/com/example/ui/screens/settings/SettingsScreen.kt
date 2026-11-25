@@ -1,8 +1,12 @@
 package com.example.ui.screens.settings
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -29,6 +33,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -55,10 +60,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,14 +76,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.preferences.UserPreferencesDataStore
 import com.example.data.repository.AppUpdateStatus
+import com.example.data.worker.ExpiryNotificationWorker
 import com.example.domain.model.ThemePreference
 import com.example.ui.components.PantryFlowRow
 import com.example.ui.components.UnitDropdownField
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -88,11 +100,27 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var repoDraft by remember(state.effectiveGithubRepo) { mutableStateOf(state.effectiveGithubRepo) }
     var homeTitleDraft by remember(state.homeTitle) { mutableStateOf(state.homeTitle) }
+    var hasNotificationPermission by remember {
+        mutableStateOf(ExpiryNotificationWorker.canPostNotifications(context))
+    }
+    var pendingManualExpiryCheck by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasNotificationPermission = ExpiryNotificationWorker.canPostNotifications(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(message) {
         message?.let {
@@ -104,9 +132,19 @@ fun SettingsScreen(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
+        hasNotificationPermission = ExpiryNotificationWorker.canPostNotifications(context)
+        val shouldRunManualCheck = pendingManualExpiryCheck
+        pendingManualExpiryCheck = false
+        if (granted && hasNotificationPermission) {
             val s = state.settings
             viewModel.updateNotificationSettings(true, s.notify7Days, s.notify3Days, s.notify1Day, s.notify0Days)
+            if (shouldRunManualCheck) {
+                viewModel.triggerExpiryCheckNow()
+            }
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar("Permesso notifiche negato: attivalo dalle impostazioni di sistema.")
+            }
         }
     }
 
@@ -254,21 +292,74 @@ fun SettingsScreen(
                         Switch(
                             checked = s.notificationsEnabled,
                             onCheckedChange = { enabled ->
+                                viewModel.updateNotificationSettings(
+                                    enabled, s.notify7Days, s.notify3Days, s.notify1Day, s.notify0Days
+                                )
                                 if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     val granted = ContextCompat.checkSelfPermission(
                                         context,
                                         Manifest.permission.POST_NOTIFICATIONS
                                     ) == PackageManager.PERMISSION_GRANTED
                                     if (!granted) {
+                                        pendingManualExpiryCheck = false
                                         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                        return@Switch
                                     }
                                 }
-                                viewModel.updateNotificationSettings(
-                                    enabled, s.notify7Days, s.notify3Days, s.notify1Day, s.notify0Days
-                                )
                             }
                         )
+                    }
+
+                    if (s.notificationsEnabled && !hasNotificationPermission) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.NotificationsOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Le notifiche risultano bloccate dal sistema Android.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                        ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.POST_NOTIFICATIONS
+                                        ) != PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                pendingManualExpiryCheck = false
+                                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                            },
+                                            modifier = Modifier.testTag("grant_notifications_button")
+                                        ) {
+                                            Text("Concedi permesso")
+                                        }
+                                    }
+                                    OutlinedButton(
+                                        onClick = { openAppNotificationSettings(context) },
+                                        modifier = Modifier.testTag("open_notification_settings_button")
+                                    ) {
+                                        Text("Impostazioni Android")
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     if (s.notificationsEnabled) {
@@ -307,8 +398,24 @@ fun SettingsScreen(
                             )
                         }
                         OutlinedButton(
-                            onClick = viewModel::triggerExpiryCheckNow,
-                            modifier = Modifier.fillMaxWidth()
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.POST_NOTIFICATIONS
+                                    ) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    pendingManualExpiryCheck = true
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else if (!ExpiryNotificationWorker.canPostNotifications(context)) {
+                                    openAppNotificationSettings(context)
+                                } else {
+                                    viewModel.triggerExpiryCheckNow()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("trigger_expiry_check_button")
                         ) {
                             Icon(Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
@@ -594,4 +701,19 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+}
+
+private fun openAppNotificationSettings(context: Context) {
+    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        }
+    } else {
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+        }
+    }.apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
 }

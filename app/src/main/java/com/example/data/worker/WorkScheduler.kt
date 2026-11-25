@@ -10,7 +10,9 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,20 +26,29 @@ class WorkScheduler @Inject constructor(
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             UNIQUE_PERIODIC_WORK,
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingPeriodicWorkPolicy.KEEP,
             request
         )
     }
 
-    fun triggerImmediateExpiryCheck() {
+    fun cancelDailyExpiryCheck() {
+        WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_PERIODIC_WORK)
+    }
+
+    fun triggerImmediateExpiryCheck(isManual: Boolean = false): UUID {
         val request = OneTimeWorkRequestBuilder<ExpiryNotificationWorker>()
+            .setInputData(workDataOf(ExpiryNotificationWorker.KEY_MANUAL_TRIGGER to isManual))
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             UNIQUE_IMMEDIATE_WORK,
             ExistingWorkPolicy.REPLACE,
             request
         )
+        return request.id
     }
+
+    fun observeWorkInfo(workId: UUID) =
+        WorkManager.getInstance(context).getWorkInfoByIdFlow(workId)
 
     fun schedulePeriodicUpdateCheck() {
         val constraints = Constraints.Builder()
@@ -71,7 +82,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 "pantrymaster_periodic_expiry_check",
-                ExistingPeriodicWorkPolicy.UPDATE,
+                ExistingPeriodicWorkPolicy.KEEP,
                 request
             )
             WorkManager.getInstance(context).enqueue(

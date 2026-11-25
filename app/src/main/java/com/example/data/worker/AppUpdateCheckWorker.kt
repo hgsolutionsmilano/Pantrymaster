@@ -89,7 +89,7 @@ class AppUpdateCheckWorker @AssistedInject constructor(
         )
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_pantry)
             .setContentTitle("Aggiornamento PantryMaster v$latestVersion")
             .setContentText("Disponibile nuova release ($releaseTitle). Tocca per aprire l'app.")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

@@ -450,7 +450,6 @@ private fun ScannerResultContent(
             is BarcodeLookupResult.LocalProduct -> {
                 val product = lookup.product
                 var qtyText by remember { mutableStateOf("1") }
-                var priceText by remember { mutableStateOf("") }
                 var expiryDate by remember { mutableStateOf<Long?>(null) }
                 var expiryType by remember { mutableStateOf(ExpiryType.USE_BY) }
                 var locationId by remember { mutableStateOf(product.defaultLocationId) }
@@ -498,14 +497,6 @@ private fun ScannerResultContent(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
-                    value = priceText,
-                    onValueChange = { priceText = it },
-                    label = { Text("Prezzo acquisto € (opzionale)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
                 OutlinedButton(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -535,7 +526,7 @@ private fun ScannerResultContent(
                                 expiryDate,
                                 expiryType,
                                 locationId,
-                                priceText.replace(",", ".").toDoubleOrNull()
+                                null
                             )
                         }
                     },
