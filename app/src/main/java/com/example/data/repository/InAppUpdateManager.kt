@@ -476,7 +476,7 @@ class InAppUpdateManager @Inject constructor(
         val archiveInfo = getPackageArchiveInfoCompat(pm, apkFile.absolutePath)
             ?: return ApkValidationResult.Invalid("Il pacchetto scaricato non è un APK Android valido.")
 
-        if (archiveInfo.packageName != context.packageName) {
+        if (!AppSigningFormatter.isPackageCompatible(context.packageName, archiveInfo.packageName)) {
             return ApkValidationResult.Invalid(
                 "Il pacchetto appartiene a un'altra applicazione (${archiveInfo.packageName})."
             )
@@ -488,7 +488,7 @@ class InAppUpdateManager @Inject constructor(
             @Suppress("DEPRECATION")
             archiveInfo.versionCode.toLong()
         }
-        if (archiveVersionCode < BuildConfig.VERSION_CODE.toLong()) {
+        if (!AppSigningFormatter.isValidVersionUpgrade(BuildConfig.VERSION_CODE.toLong(), archiveVersionCode)) {
             return ApkValidationResult.Invalid(
                 "La versione del pacchetto ($archiveVersionCode) è precedente a quella installata."
             )
@@ -497,6 +497,12 @@ class InAppUpdateManager @Inject constructor(
         val installedPackage = getInstalledPackageInfo(pm, context.packageName)
         val installedHashes = installedPackage?.let { extractActiveSigningHashes(it) }.orEmpty()
         val archiveHashes = extractAllSigningHashes(archiveInfo)
+
+        if (archiveHashes.isEmpty()) {
+            return ApkValidationResult.Invalid(
+                "Il pacchetto APK scaricato non contiene una firma digitale valida."
+            )
+        }
 
         if (!AppSigningFormatter.areSigningHashesCompatible(installedHashes, archiveHashes)) {
             val installedDetails = getInstalledSigningDetails()

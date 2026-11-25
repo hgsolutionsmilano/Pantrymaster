@@ -89,9 +89,20 @@ object AppSigningFormatter {
         installedActiveHashes: Set<String>,
         archiveAllHashes: Set<String>
     ): Boolean {
-        if (installedActiveHashes.isEmpty() || archiveAllHashes.isEmpty()) {
+        if (archiveAllHashes.isEmpty()) {
+            return false
+        }
+        if (installedActiveHashes.isEmpty()) {
             return true
         }
         return installedActiveHashes.any { it in archiveAllHashes }
+    }
+
+    fun isPackageCompatible(installedPackageName: String, archivePackageName: String?): Boolean {
+        return !archivePackageName.isNullOrBlank() && archivePackageName == installedPackageName
+    }
+
+    fun isValidVersionUpgrade(currentVersionCode: Long, archiveVersionCode: Long): Boolean {
+        return archiveVersionCode >= currentVersionCode
     }
 }

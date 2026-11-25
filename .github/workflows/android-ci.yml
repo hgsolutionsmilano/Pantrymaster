@@ -22,29 +22,91 @@ concurrency:
 
 jobs:
   build_and_test:
-    name: Test, Compilazione e Release APK
+    name: CI Verifica, Firma Release e Pubblicazione
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'chore(release):')"
 
     steps:
-      - name: Checkout codice
+      - name: 1. Checkout codice
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configura JDK 21
+      - name: 2. Configura JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Configura Gradle
+      - name: 3. Configura Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
-      - name: Calcola versione progressiva CI
+      - name: Rileva modalita pipeline (CI o Release)
+        id: mode
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            echo "publish_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verifica Secrets firma Release (obbligatori per pubblicazione Release)
+        if: steps.mode.outputs.publish_release == 'true'
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_KEYSTORE_BASE64" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Secrets di firma Release mancanti. Per pubblicare su main/master o workflow_dispatch configura RELEASE_KEYSTORE_BASE64, STORE_PASSWORD e KEY_PASSWORD in Settings -> Secrets -> Actions. Nessun APK Debug verra pubblicato come Release."
+            exit 1
+          fi
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > my-upload-key.jks
+          if ! keytool -list -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias upload >/dev/null 2>&1; then
+            echo "::error::Keystore Release non valido, STORE_PASSWORD errata o alias 'upload' mancante."
+            rm -f my-upload-key.jks
+            exit 1
+          fi
+          CERT_DN=$(keytool -list -v -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias upload 2>/dev/null | grep -m1 "Owner:" || true)
+          if echo "$CERT_DN" | grep -qi "CN=Android Debug"; then
+            echo "::error::Il keystore configurato in RELEASE_KEYSTORE_BASE64 e un certificato Android Debug."
+            rm -f my-upload-key.jks
+            exit 1
+          fi
+
+      - name: Prepara debug.keystore coerente (priorita al Secret GitHub)
+        shell: bash
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > debug.keystore
+          elif [ -f debug.keystore.base64 ]; then
+            tr -d '[:space:]' < debug.keystore.base64 | base64 --decode > debug.keystore
+          else
+            echo "::error::DEBUG_KEYSTORE_BASE64 e debug.keystore.base64 mancanti."
+            exit 1
+          fi
+          keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
+
+      - name: 4. Verifica delle dipendenze
+        run: gradle :app:dependencies --configuration debugRuntimeClasspath --no-daemon >/dev/null
+
+      - name: 5. Compilazione Debug
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: 6. Esecuzione test unitari e Robolectric
+        run: gradle :app:testDebugUnitTest --no-daemon
+
+      - name: Calcola versione progressiva Release
         id: version
+        if: steps.mode.outputs.publish_release == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -111,63 +173,17 @@ jobs:
           echo "code=$PROGRESSIVE_CODE" >> "$GITHUB_OUTPUT"
           echo "name=$PROGRESSIVE_NAME" >> "$GITHUB_OUTPUT"
           echo "tag=v$PROGRESSIVE_NAME" >> "$GITHUB_OUTPUT"
-          echo "Versione progressiva: v$PROGRESSIVE_NAME (versionCode=$PROGRESSIVE_CODE)"
+          echo "Versione Release: v$PROGRESSIVE_NAME (versionCode=$PROGRESSIVE_CODE)"
 
-      - name: Prepara debug.keystore coerente (priorita al Secret GitHub)
-        shell: bash
-        env:
-          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
-            printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > debug.keystore
-          elif [ -f debug.keystore.base64 ]; then
-            tr -d '[:space:]' < debug.keystore.base64 | base64 --decode > debug.keystore
-          elif [ ! -f debug.keystore ]; then
-            echo "::warning::debug.keystore.base64 e DEBUG_KEYSTORE_BASE64 mancanti: creo keystore temporaneo."
-            keytool -genkeypair -v -keystore debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
-
-      - name: Esegui test unitari e Robolectric
-        run: gradle :app:testDebugUnitTest --no-daemon
-
-      - name: Verifica firma release (Secrets GitHub)
-        id: signing
-        shell: bash
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ] || [ -n "$STORE_PASSWORD" ] || [ -n "$KEY_PASSWORD" ]; then
-            if [ -z "$RELEASE_KEYSTORE_BASE64" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
-              echo "::error::Configurazione firma release incompleta: imposta tutti e 3 i Secrets (RELEASE_KEYSTORE_BASE64, STORE_PASSWORD, KEY_PASSWORD)."
-              exit 1
-            fi
-            printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > my-upload-key.jks
-            if ! keytool -list -keystore my-upload-key.jks -storepass "$STORE_PASSWORD" -alias upload >/dev/null 2>&1; then
-              echo "::error::Keystore release non valido, password errata o alias 'upload' mancante."
-              rm -f my-upload-key.jks
-              exit 1
-            fi
-            echo "has_release_signing=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_release_signing=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Compila APK Release firmato
-        if: steps.signing.outputs.has_release_signing == 'true'
+      - name: 7-8. Compilazione e Firma APK Release
+        if: steps.mode.outputs.publish_release == 'true'
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
+          set -euo pipefail
           gradle :app:assembleRelease \
             -PversionCode=${{ steps.version.outputs.code }} \
             -PversionName=${{ steps.version.outputs.name }} \
@@ -176,39 +192,45 @@ jobs:
           mkdir -p artifacts
           cp app/build/outputs/apk/release/app-release.apk \
             "artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}.apk"
-          rm -f my-upload-key.jks
 
-      - name: Compila APK installabile (Debug firmato)
-        if: steps.signing.outputs.has_release_signing != 'true'
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          gradle :app:assembleDebug \
-            -PversionCode=${{ steps.version.outputs.code }} \
-            -PversionName=${{ steps.version.outputs.name }} \
-            -PgithubRepo=${{ github.repository }} \
-            --no-daemon
-          mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk \
-            "artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}.apk"
+      - name: Pulizia file keystore temporanei
+        if: always()
+        shell: bash
+        run: rm -f my-upload-key.jks debug.keystore
 
-      - name: Verifica coerenza firma rispetto alla release precedente
+      - name: 9. Verifica crittografica firma (apksigner) e continuità certificato
         id: cert_check
+        if: steps.mode.outputs.publish_release == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ALLOW_SIG_CHANGE: ${{ inputs.allow_signature_change || false }}
-          HAS_RELEASE_SIGNING: ${{ steps.signing.outputs.has_release_signing }}
         run: |
           set -euo pipefail
-          APK_FILE=$(ls artifacts/*.apk | head -n 1)
-          NEW_CERT=$(keytool -printcert -jarfile "$APK_FILE")
-          NEW_OWNER=$(printf '%s\n' "$NEW_CERT" | grep -m1 "Owner:" | sed 's/^[[:space:]]*Owner:[[:space:]]*//')
-          NEW_SHA256=$(printf '%s\n' "$NEW_CERT" | grep -m1 "SHA256:" | sed 's/.*SHA256:[[:space:]]*//')
-          echo "Owner nuova build: $NEW_OWNER"
-          echo "SHA256 nuova build: $NEW_SHA256"
-          echo "sha256=$NEW_SHA256" >> "$GITHUB_OUTPUT"
-          echo "build_kind=$([ "$HAS_RELEASE_SIGNING" = "true" ] && echo "Release firmata" || echo "Debug (chiave di sviluppo)")" >> "$GITHUB_OUTPUT"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          APKSIGNER=$(find "$SDK_ROOT/build-tools" -name apksigner 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            echo "::error::Strumento apksigner non trovato in $SDK_ROOT/build-tools."
+            exit 1
+          fi
+
+          APK_FILE="artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}.apk"
+          VERIFY_OUT=$("$APKSIGNER" verify --verbose --print-certs "$APK_FILE")
+          printf '%s\n' "$VERIFY_OUT"
+
+          NEW_DN=$(printf '%s\n' "$VERIFY_OUT" | grep -m1 "Signer #1 certificate DN:" | sed 's/.*DN:[[:space:]]*//')
+          NEW_HEX=$(printf '%s\n' "$VERIFY_OUT" | grep -m1 "Signer #1 certificate SHA-256 digest:" | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]:')
+          if [ -z "$NEW_HEX" ]; then
+            echo "::error::Impossibile leggere il digest SHA-256 della firma dell'APK."
+            exit 1
+          fi
+          if echo "$NEW_DN" | grep -qi "CN=Android Debug"; then
+            echo "::error::L'APK Release risulta firmato con certificato Android Debug. Pubblicazione bloccata."
+            exit 1
+          fi
+
+          NEW_COLON=$(printf '%s' "$NEW_HEX" | sed 's/\(..\)/\1:/g; s/:$//')
+          echo "sha256=$NEW_COLON" >> "$GITHUB_OUTPUT"
 
           PREV_URL=$(python3 - <<'PY'
           import json, os, urllib.request
@@ -241,30 +263,67 @@ jobs:
           if [ -n "$PREV_URL" ]; then
             curl -sSL -H "Authorization: Bearer $GH_TOKEN" "$PREV_URL" -o /tmp/prev_release.apk || true
             if [ -s /tmp/prev_release.apk ]; then
-              PREV_CERT=$(keytool -printcert -jarfile /tmp/prev_release.apk 2>/dev/null || true)
-              PREV_OWNER=$(printf '%s\n' "$PREV_CERT" | grep -m1 "Owner:" | sed 's/^[[:space:]]*Owner:[[:space:]]*//')
-              PREV_SHA256=$(printf '%s\n' "$PREV_CERT" | grep -m1 "SHA256:" | sed 's/.*SHA256:[[:space:]]*//')
+              PREV_OUT=$("$APKSIGNER" verify --print-certs /tmp/prev_release.apk 2>/dev/null || true)
+              PREV_DN=$(printf '%s\n' "$PREV_OUT" | grep -m1 "Signer #1 certificate DN:" | sed 's/.*DN:[[:space:]]*//')
+              PREV_HEX=$(printf '%s\n' "$PREV_OUT" | grep -m1 "Signer #1 certificate SHA-256 digest:" | sed 's/.*digest:[[:space:]]*//' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]:')
               rm -f /tmp/prev_release.apk
-              echo "SHA256 release precedente: $PREV_SHA256 ($PREV_OWNER)"
 
-              if [ -n "$PREV_SHA256" ] && [ "$NEW_SHA256" != "$PREV_SHA256" ]; then
+              if [ -n "$PREV_HEX" ] && [ "$NEW_HEX" != "$PREV_HEX" ]; then
                 if [ "$ALLOW_SIG_CHANGE" = "true" ]; then
-                  echo "::warning::Cambio firma consentito manualmente ($PREV_SHA256 -> $NEW_SHA256)."
-                elif echo "$PREV_OWNER" | grep -q "CN=Android Debug" && [ "$HAS_RELEASE_SIGNING" = "true" ]; then
-                  echo "::warning::Prima migrazione da Debug a Release firmata ($PREV_SHA256 -> $NEW_SHA256)."
-                elif ! echo "$PREV_OWNER" | grep -q "CN=Android Debug" && [ "$HAS_RELEASE_SIGNING" != "true" ]; then
-                  echo "::error::La release precedente era firmata in modalità Release ($PREV_SHA256), ma i Secrets di firma non sono attivi in questa build. Impossibile pubblicare un APK Debug sopra una Release."
-                  exit 1
-                elif [ "$HAS_RELEASE_SIGNING" = "true" ]; then
-                  echo "::error::Il keystore Release nei Secrets ($NEW_SHA256) è diverso da quello della release precedente ($PREV_SHA256). Ripristina il keystore originale nei Secrets o avvia manualmente con allow_signature_change=true."
-                  exit 1
+                  echo "::warning::Cambio firma consentito manualmente ($PREV_HEX -> $NEW_HEX)."
+                elif echo "$PREV_DN" | grep -qi "CN=Android Debug"; then
+                  echo "::warning::Prima migrazione da vecchia build Debug a firma Release permanente ($PREV_HEX -> $NEW_HEX)."
                 else
-                  echo "::error::La firma Debug ($NEW_SHA256) è diversa dalla release precedente ($PREV_SHA256). Per non avere più errori di firma, configura stabilmente RELEASE_KEYSTORE_BASE64 / STORE_PASSWORD / KEY_PASSWORD (oppure DEBUG_KEYSTORE_BASE64) nei Secrets GitHub, o avvia manualmente con allow_signature_change=true."
+                  echo "::error::Il certificato Release ($NEW_COLON) NON corrisponde alla release precedente ($PREV_HEX). Ripristina il keystore originale nei Secrets GitHub o usa allow_signature_change=true solo per migrazioni intenzionali."
                   exit 1
                 fi
               fi
             fi
           fi
+
+      - name: 10. Verifica applicationId, versionCode e versionName (aapt2)
+        if: steps.mode.outputs.publish_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          AAPT2=$(find "$SDK_ROOT/build-tools" -name aapt2 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$AAPT2" ] || [ ! -x "$AAPT2" ]; then
+            echo "::error::Strumento aapt2 non trovato in $SDK_ROOT/build-tools."
+            exit 1
+          fi
+
+          APK_FILE="artifacts/PantryMaster-v${{ steps.version.outputs.name }}-build${{ steps.version.outputs.code }}.apk"
+          BADGING=$("$AAPT2" dump badging "$APK_FILE" | head -n 1)
+          echo "APK manifest: $BADGING"
+
+          EXPECTED_PKG="com.aistudio.pantrymaster.vrkqzm"
+          EXPECTED_CODE="${{ steps.version.outputs.version_code }}"
+          EXPECTED_NAME="${{ steps.version.outputs.version_name }}"
+
+          echo "$BADGING" | grep -q "name='${EXPECTED_PKG}'" || {
+            echo "::error::applicationId non corrispondente (atteso ${EXPECTED_PKG})."
+            exit 1
+          }
+          echo "$BADGING" | grep -q "versionCode='${EXPECTED_CODE}'" || {
+            echo "::error::versionCode non corrispondente (atteso ${EXPECTED_CODE})."
+            exit 1
+          }
+          echo "$BADGING" | grep -q "versionName='${EXPECTED_NAME}'" || {
+            echo "::error::versionName non corrispondente (atteso ${EXPECTED_NAME})."
+            exit 1
+          }
+
+      - name: 11. Genera checksum SHA-256 APK
+        if: steps.mode.outputs.publish_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          for f in *.apk; do
+            sha256sum "$f" > "${f}.sha256"
+          done
+          cat *.sha256
 
       - name: Carica report test
         if: always()
@@ -274,22 +333,24 @@ jobs:
           path: app/build/reports/tests/testDebugUnitTest/
           retention-days: 14
 
-      - name: Carica APK come artefatto workflow
+      - name: 12. Pubblica APK e checksum come Artifact GitHub
+        if: steps.mode.outputs.publish_release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: PantryMaster-v${{ steps.version.outputs.name }}-apk
-          path: artifacts/*.apk
+          path: artifacts/*
           retention-days: 30
 
-      - name: Pubblica GitHub Release con APK
-        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) || github.event_name == 'workflow_dispatch'
+      - name: Pubblica GitHub Release con APK firmato
+        if: steps.mode.outputs.publish_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: PantryMaster ${{ steps.version.outputs.tag }} (build ${{ steps.version.outputs.code }})
           body: |
-            - **Tipo pacchetto:** ${{ steps.cert_check.outputs.build_kind }}
-            - **Firma SHA-256:** `${{ steps.cert_check.outputs.sha256 }}`
+            - **Tipo pacchetto:** Release firmata
+            - **Application ID:** `com.aistudio.pantrymaster.vrkqzm`
+            - **Firma certificato SHA-256:** `${{ steps.cert_check.outputs.sha256 }}`
           generate_release_notes: true
           make_latest: true
-          files: artifacts/*.apk
+          files: artifacts/*

@@ -22,7 +22,7 @@ class AppSigningAndAssetSelectionTest {
     }
 
     @Test
-    fun signingHashesCompatibility_validatesMatchingAndRotatedSignersAndRejectsMismatch() {
+    fun signingHashesCompatibility_validatesMatchingAndRotatedSignersAndRejectsMismatchOrUnsigned() {
         val releaseCert = "aaaa1111"
         val oldDebugCert = "bbbb2222"
         val rotatedNewCert = "cccc3333"
@@ -45,6 +45,24 @@ class AppSigningAndAssetSelectionTest {
                 archiveAllHashes = setOf(releaseCert)
             )
         )
+        assertFalse(
+            AppSigningFormatter.areSigningHashesCompatible(
+                installedActiveHashes = setOf(releaseCert),
+                archiveAllHashes = emptySet()
+            )
+        )
+    }
+
+    @Test
+    fun packageIdAndVersionCodeUpgradeChecks_enforceCompatibilityAndNoDowngrade() {
+        val appId = "com.aistudio.pantrymaster.vrkqzm"
+        assertTrue(AppSigningFormatter.isPackageCompatible(appId, appId))
+        assertFalse(AppSigningFormatter.isPackageCompatible(appId, "com.example.other"))
+        assertFalse(AppSigningFormatter.isPackageCompatible(appId, null))
+
+        assertTrue(AppSigningFormatter.isValidVersionUpgrade(10L, 11L))
+        assertTrue(AppSigningFormatter.isValidVersionUpgrade(10L, 10L))
+        assertFalse(AppSigningFormatter.isValidVersionUpgrade(10L, 9L))
     }
 
     @Test

@@ -13,6 +13,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.ProductBatchEntity
@@ -291,6 +292,95 @@ class PantryUiSmokeTest {
         composeRule.onNodeWithTag("update_dialog_signature_mismatch_card").assertIsDisplayed()
         composeRule.onNodeWithTag("update_dialog_backup_button").assertIsDisplayed()
         composeRule.onNodeWithTag("update_dialog_save_apk_button").assertIsDisplayed()
+    }
+
+    @Test
+    fun appUpdateDialog_signatureMismatch_invokesBackupAndSaveApkCallbacksOnClick() {
+        val updateInfo = AppUpdateInfo(
+            currentVersion = "1.0.0",
+            latestVersion = "1.2.0",
+            latestBuildCode = 20,
+            tagName = "v1.2.0",
+            releaseTitle = "PantryMaster v1.2.0",
+            releaseNotes = "Release firmata",
+            releasePageUrl = "https://github.com/acme/PantryMaster/releases/tag/v1.2.0",
+            apkDownloadUrl = "https://github.com/acme/PantryMaster/releases/download/v1.2.0/app.apk",
+            apkFileName = "PantryMaster-v1.2.0.apk",
+            apkSizeBytes = 10_000_000L,
+            publishedAt = null
+        )
+        var backupClicked = false
+        var saveApkClicked = false
+
+        composeRule.setContent {
+            PantryMasterTheme {
+                AppUpdateAvailableDialog(
+                    updateInfo = updateInfo,
+                    downloadState = InAppUpdateDownloadState.SignatureMismatch(
+                        updateInfo = updateInfo,
+                        apkFile = File("/tmp/PantryMaster-v1.2.0.apk"),
+                        installedFingerprint = "BA:2F:13:12:C9:61:12:B0:85:45:A4:26:5D:E4:FD:43:64:E2:A3:F2:11:7B:06:A6:C9:A8:B0:8E:E2:0C:22:FD",
+                        archiveFingerprint = "AA:BB:CC:DD:11:22:33:44:55:66:77:88:99:00:AA:BB:CC:DD:EE:FF:11:22:33:44:55:66:77:88:99:00:11:22",
+                        installedIsDebug = true,
+                        archiveIsDebug = false
+                    ),
+                    canInstallPackages = true,
+                    onInstallClick = {},
+                    onContinueInBackground = {},
+                    onRetryClick = {},
+                    onRemindLater = {},
+                    onIgnoreVersion = {},
+                    onExportBackupClick = { backupClicked = true },
+                    onSaveApkClick = { saveApkClicked = true }
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("update_dialog_backup_button").performClick()
+        composeRule.onNodeWithTag("update_dialog_save_apk_button").performClick()
+        assertTrue(backupClicked)
+        assertTrue(saveApkClicked)
+    }
+
+    @Test
+    fun appUpdateDialog_downloading_showsBackgroundProgressButton() {
+        val updateInfo = AppUpdateInfo(
+            currentVersion = "1.0.0",
+            latestVersion = "1.2.0",
+            latestBuildCode = 20,
+            tagName = "v1.2.0",
+            releaseTitle = "PantryMaster v1.2.0",
+            releaseNotes = "Aggiornamento",
+            releasePageUrl = "https://github.com/acme/PantryMaster/releases/tag/v1.2.0",
+            apkDownloadUrl = "https://github.com/acme/PantryMaster/releases/download/v1.2.0/app.apk",
+            apkFileName = "PantryMaster-v1.2.0.apk",
+            apkSizeBytes = 10_000_000L,
+            publishedAt = null
+        )
+
+        composeRule.setContent {
+            PantryMasterTheme {
+                AppUpdateAvailableDialog(
+                    updateInfo = updateInfo,
+                    downloadState = InAppUpdateDownloadState.Downloading(
+                        updateInfo = updateInfo,
+                        downloadedBytes = 5_000_000L,
+                        totalBytes = 10_000_000L,
+                        progress = 0.5f
+                    ),
+                    canInstallPackages = true,
+                    onInstallClick = {},
+                    onContinueInBackground = {},
+                    onRetryClick = {},
+                    onRemindLater = {},
+                    onIgnoreVersion = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("update_dialog_progress_bar").assertIsDisplayed()
+        composeRule.onNodeWithTag("update_dialog_background_button").assertIsDisplayed()
     }
 }
 
