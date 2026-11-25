@@ -30,18 +30,7 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: 4. Prepara debug.keystore per test (nessuna chiave generata)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f debug.keystore.base64 ]; then
-            echo "::error::debug.keystore.base64 mancante."
-            exit 1
-          fi
-          tr -d '[:space:]' < debug.keystore.base64 | base64 --decode > debug.keystore
-          keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
-
-      - name: 5. Verifica sicurezza (nessun keystore Release o backup cifrato nel repo)
+      - name: 4. Verifica sicurezza (nessun keystore Release o backup cifrato nel repo)
         shell: bash
         run: |
           set -euo pipefail
@@ -51,16 +40,55 @@ jobs:
             exit 1
           fi
 
+      - name: 5. Prepara keystore Debug temporaneo standard per test
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            if [ -f "$HOME/.android/debug.keystore" ]; then
+              cp "$HOME/.android/debug.keystore" debug.keystore
+            else
+              CI_DBG_PASS="android"
+              export CI_DBG_PASS
+              keytool -genkeypair \
+                -keystore debug.keystore \
+                -storetype PKCS12 \
+                -alias androiddebugkey \
+                -dname "CN=Android Debug,O=Android,C=US" \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10950 \
+                -storepass:env CI_DBG_PASS \
+                -keypass:env CI_DBG_PASS >/dev/null 2>&1
+              unset CI_DBG_PASS
+            fi
+          fi
+
       - name: 6. Verifica dipendenze Release e Debug
         run: gradle :app:dependencies --configuration releaseRuntimeClasspath --no-daemon >/dev/null
 
       - name: 7. Compilazione Debug e Kotlin Release
         run: gradle :app:assembleDebug :app:compileReleaseKotlin --no-daemon
 
-      - name: 8. Esecuzione test unitari e Robolectric
+      - name: 8. Verifica firma APK Debug e blocco Release senza keystore privato
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          APKSIGNER=$(find "$SDK_DIR/build-tools" -name apksigner 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk
+          fi
+          if gradle :app:verifyReleaseSigning --no-daemon >/dev/null 2>&1; then
+            echo "::error::La build Release non deve procedere senza keystore Release privato."
+            exit 1
+          fi
+          echo "OK: protezione firma Release attiva (nessun fallback a Debug)."
+
+      - name: 9. Esecuzione test unitari e Robolectric
         run: gradle :app:testDebugUnitTest --no-daemon
 
-      - name: 9. Verifica metadati version.properties e applicationId
+      - name: 10. Verifica metadati version.properties e applicationId
         shell: bash
         run: |
           set -euo pipefail
@@ -69,7 +97,7 @@ jobs:
           grep -q 'applicationId = "com.aistudio.pantrymaster.vrkqzm"' app/build.gradle.kts
           echo "NOTA: La compilazione e firma ufficiale Release (.apk/.aab) vengono eseguite esclusivamente in locale su Windows tramite PantryMaster-Release-Manager.ps1."
 
-      - name: 10. Pulizia
+      - name: 11. Pulizia keystore temporaneo Debug
         if: always()
         shell: bash
         run: rm -f debug.keystore

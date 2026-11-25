@@ -18,6 +18,9 @@ Lo script `PantryMaster-Release-Manager.ps1` (nella root del progetto) genera un
 
 Gradle (`app/build.gradle.kts`) legge `KEYSTORE_PATH`, `STORE_PASSWORD` e `KEY_PASSWORD` esclusivamente da variabili d'ambiente in memoria durante la build ed esegue il task `verifyReleaseSigning` che **blocca immediatamente** la build Release se il keystore manca, se le password sono errate o se punta a un certificato `CN=Android Debug`.
 
+### Nota sulla firma Debug in CI (nessun `debug.keystore.base64` richiesto)
+PantryMaster è un'app **offline-first** priva di `google-services.json`, Firebase Auth/App Check o SDK esterni vincolati all'impronta SHA-1/SHA-256 Debug: **non esiste alcuna dipendenza applicativa da un certificato Debug stabile**. Su GitHub Actions (`android-ci.yml` e `release.yml`), i runner non dipendono da `debug.keystore.base64` né da GitHub Secrets: usano lo standard `~/.android/debug.keystore` o un `debug.keystore` temporaneo generato sul runner solo per compilazione e test Debug, e poi rimosso.
+
 ---
 
 ## 2. Inizializzazione in un unico comando (Windows PowerShell 5.1+)

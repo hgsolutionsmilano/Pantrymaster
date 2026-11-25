@@ -31,18 +31,7 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: 4. Prepara debug.keystore da repository (nessuna chiave generata)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f debug.keystore.base64 ]; then
-            echo "::error::debug.keystore.base64 mancante nel repository."
-            exit 1
-          fi
-          tr -d '[:space:]' < debug.keystore.base64 | base64 --decode > debug.keystore
-          keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
-
-      - name: 5. Verifica sicurezza repository (nessun keystore o segreto tracciato)
+      - name: 4. Verifica sicurezza repository (nessun keystore o segreto tracciato)
         shell: bash
         run: |
           set -euo pipefail
@@ -52,24 +41,65 @@ jobs:
             exit 1
           fi
 
+      - name: 5. Prepara keystore Debug temporaneo standard per CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            if [ -f "$HOME/.android/debug.keystore" ]; then
+              cp "$HOME/.android/debug.keystore" debug.keystore
+            else
+              CI_DBG_PASS="android"
+              export CI_DBG_PASS
+              keytool -genkeypair \
+                -keystore debug.keystore \
+                -storetype PKCS12 \
+                -alias androiddebugkey \
+                -dname "CN=Android Debug,O=Android,C=US" \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10950 \
+                -storepass:env CI_DBG_PASS \
+                -keypass:env CI_DBG_PASS >/dev/null 2>&1
+              unset CI_DBG_PASS
+            fi
+          fi
+
       - name: 6. Verifica delle dipendenze
         run: gradle :app:dependencies --configuration debugRuntimeClasspath --no-daemon >/dev/null
 
       - name: 7. Compilazione Debug
         run: gradle :app:assembleDebug --no-daemon
 
-      - name: 8. Verifica compilazione Kotlin Release (senza keystore privato)
+      - name: 8. Verifica firma APK Debug e blocco Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          APKSIGNER=$(find "$SDK_DIR/build-tools" -name apksigner 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk
+          else
+            echo "::warning::apksigner non trovato in $SDK_DIR/build-tools; verifica firma saltata."
+          fi
+          if gradle :app:verifyReleaseSigning --no-daemon >/dev/null 2>&1; then
+            echo "::error::La build Release non deve procedere senza keystore Release privato."
+            exit 1
+          fi
+          echo "OK: protezione firma Release attiva (nessun fallback a Debug)."
+
+      - name: 9. Verifica compilazione Kotlin Release (senza keystore privato)
         run: gradle :app:compileReleaseKotlin --no-daemon
 
-      - name: 9. Esecuzione test unitari e Robolectric
+      - name: 10. Esecuzione test unitari e Robolectric
         run: gradle :app:testDebugUnitTest --no-daemon
 
-      - name: 10. Pulizia keystore temporaneo Debug
+      - name: 11. Pulizia keystore temporaneo Debug
         if: always()
         shell: bash
         run: rm -f debug.keystore
 
-      - name: 11. Carica report test
+      - name: 12. Carica report test
         if: always()
         uses: actions/upload-artifact@v4
         with:
